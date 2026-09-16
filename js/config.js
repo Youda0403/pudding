@@ -10,15 +10,15 @@
     SIZE: 320,
     // 캔버스 안에서 로컬 원점이 놓이는 위치
     ORIGIN_X: 160,
-    ORIGIN_Y: 214
+    ORIGIN_Y: 206
   };
 
   // 몸통 크기 (동물 종류와 상관없이 고정)
-  var BODY_H = 112;   // 바닥 중심에서 윗면 중심까지 높이
-  var TOP_HW = 70;    // 윗면 반폭
-  var BOT_HW = 94;    // 바닥 반폭
-  var TOP_RY = 16;    // 윗면 타원의 세로 반지름(원근감)
-  var BOT_RY = 13;    // 바닥 타원의 세로 반지름
+  var BODY_H = 104;   // 바닥 중심에서 윗면 중심까지 높이
+  var TOP_HW = 62;    // 윗면 반폭
+  var BOT_HW = 82;    // 바닥 반폭
+  var TOP_RY = 15;    // 윗면 타원의 세로 반지름(원근감)
+  var BOT_RY = 17;    // 바닥 타원의 세로 반지름
   var SIDE_BOW = 8;   // 옆면이 바깥으로 살짝 불룩한 정도
 
   var TOP_Y = -BODY_H;
@@ -39,17 +39,19 @@
   // 눈/시럽/글씨/귀는 전부 여기에 맞춰 그린다.
   var ANCHOR = {
     topCenter: { x: 0, y: TOP_Y },          // 윗면 중심
-    faceCenter: { x: 0, y: TOP_Y + 56 },    // 얼굴 중심 (옆면 가운데보다 살짝 위)
-    eyeDx: 25,                              // 얼굴 중심에서 눈까지 좌우 거리
+    faceCenter: { x: 0, y: TOP_Y + 52 },    // 얼굴 중심 (옆면 가운데보다 살짝 위)
+    eyeDx: 23,                              // 얼굴 중심에서 눈까지 좌우 거리
     eyeDy: 0,
-    cheekDx: 48,                            // 볼터치 위치
+    cheekDx: 43,                            // 볼터치 위치
     cheekDy: 12,
     mouthDy: 16,                            // 얼굴 중심에서 입까지
     earY: TOP_Y + 4,                        // 귀가 붙는 높이
-    earDx: 42,                              // 귀 중심의 좌우 거리
+    earDx: 38,                              // 귀 중심의 좌우 거리
     tail: { x: BOT_HW - 6, y: -24 },        // 꼬리가 붙는 위치
-    plateY: BOT_RY + 6,                     // 접시 윗면 타원 중심
-    textY: BOT_RY + 48                      // 접시 앞쪽 글씨 기준선
+    // 접시 윗면 타원의 중심. 푸딩의 최저점(BOT_RY)과 거의 같은 높이로 두어야
+    // 푸딩이 접시 면에 닿아 보인다. 2px 아래로 두어 살짝 내려앉은 느낌을 준다.
+    plateY: BOT_RY - 2,
+    textY: BOT_RY + 46                      // 접시 앞쪽 글씨 기준선
   };
 
   // 몸통 높이 h(로컬 y)에서의 반폭. 옆면 위에 무언가를 붙일 때 쓴다.

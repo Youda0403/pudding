@@ -57,9 +57,17 @@
     // 바닥 근처에 은은한 그늘
     var bottomShade = ctx.createLinearGradient(0, B.BOT_Y - 26, 0, B.BOT_Y + B.BOT_RY);
     bottomShade.addColorStop(0, color.rgba(color.darken(base, 0.35), 0));
-    bottomShade.addColorStop(1, color.rgba(color.darken(base, 0.35), 0.22));
+    bottomShade.addColorStop(1, color.rgba(color.darken(base, 0.35), 0.18));
     ctx.fillStyle = bottomShade;
     ctx.fillRect(-B.BOT_HW, B.BOT_Y - 26, B.BOT_HW * 2, B.BOT_RY + 26);
+
+    // 접시에서 올라오는 반사광: 바닥 가장자리를 살짝 밝게 해
+    // 몸통과 그림자가 한 덩어리로 보이지 않게 한다.
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, B.BOT_Y, B.BOT_HW - 2, B.BOT_RY - 2, 0, Math.PI * 0.18, Math.PI * 0.82);
+    ctx.stroke();
 
     // 오른쪽 아래 모서리 그늘
     var sideShade = ctx.createLinearGradient(B.BOT_HW - 46, 0, B.BOT_HW, 0);
