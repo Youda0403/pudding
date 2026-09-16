@@ -7,7 +7,7 @@
   var PUDDING = global.PUDDING || (global.PUDDING = {});
   var CANVAS = PUDDING.CANVAS;
 
-  var REST_POSE = { skewX: 0, scaleX: 1, scaleY: 1 };
+  var REST_POSE = { skewX: 0, scaleX: 1, scaleY: 1, blink: false };
 
   /* 바닥 중심을 고정한 채 위로 갈수록 크게 흔들리는 변형 */
   function applyPose(ctx, pose) {
@@ -37,6 +37,7 @@
     ctx.save();
     applyPose(ctx, p);
     PUDDING.drawBody(ctx, state);
+    PUDDING.drawEyes(ctx, state, p);
     ctx.restore();
 
     if (PUDDING.DEBUG) {

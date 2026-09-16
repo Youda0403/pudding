@@ -82,14 +82,14 @@
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(-B.TOP_HW + 20, B.TOP_Y + 26);
-    ctx.quadraticCurveTo(-B.TOP_HW + 6, B.TOP_Y + 46, -B.TOP_HW + 2, B.TOP_Y + 66);
+    ctx.quadraticCurveTo(-B.TOP_HW + 6, B.TOP_Y + 40, -B.TOP_HW + 3, B.TOP_Y + 52);
     ctx.stroke();
 
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.moveTo(-B.TOP_HW + 30, B.TOP_Y + 30);
-    ctx.quadraticCurveTo(-B.TOP_HW + 21, B.TOP_Y + 44, -B.TOP_HW + 19, B.TOP_Y + 58);
+    ctx.quadraticCurveTo(-B.TOP_HW + 21, B.TOP_Y + 40, -B.TOP_HW + 20, B.TOP_Y + 50);
     ctx.stroke();
 
     ctx.restore();
