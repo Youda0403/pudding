@@ -1,0 +1,63 @@
+:root {
+  --bg: #fff3e2;
+  --card: #ffffff;
+  --ink: #5a4433;
+  --ink-soft: #9b8574;
+  --line: #f0dfc9;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.app-header {
+  padding: 22px 16px 8px;
+  text-align: center;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.app-header .sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.app-main {
+  padding: 8px 16px 32px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.stage {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 6px 18px rgba(155, 133, 116, 0.12);
+}
+
+#preview {
+  width: 320px;
+  height: 320px;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  /* 캔버스를 눌러도 페이지가 스크롤되지 않도록 */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
