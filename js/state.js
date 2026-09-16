@@ -8,7 +8,9 @@
     return {
       animal: 'cat',        // cat | rabbit | bear
       bodyColor: '#f6d58a',
-      eyes: 'round',        // round | sparkle | smile | sleepy
+      eyes: 'round',        // round | sparkle | smile | sleepy | upturned | downturned | half
+      eyeColor: '#4b3423',
+      mouth: 'three',       // three(ω) | caret(^) | dot(.)
       syrup: 'caramel',     // caramel | choco | strawberry
       syrupShape: 'drip',   // drip | pool
       text: '',

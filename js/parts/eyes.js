@@ -7,17 +7,30 @@
   var ANCHOR = PUDDING.ANCHOR;
   var TAU = Math.PI * 2;
 
-  var INK = '#4b3423';        // 눈·입 색
+  var INK = '#4b3423';        // 입 색 (눈 색과 별개)
   var BLUSH = 'rgba(240, 143, 146, 0.45)';
+  var GLINT = '#ffffff';
 
-  /* 눈동자: 검은 원 + 흰 반사점 */
-  function pupil(ctx, x, y, r, highlights) {
-    ctx.fillStyle = INK;
+  // 눈 색 고르기용 기본 목록
+  var EYE_COLORS = [
+    '#4b3423', // 기본 갈색
+    '#2f2b28', // 먹색
+    '#4a6fb0', // 파랑
+    '#7a5aa8', // 보라
+    '#c0566a', // 붉은
+    '#3f8a63'  // 초록
+  ];
+
+  /* ---------- 눈 그리기 조각들 ---------- */
+
+  /* 동그란 눈동자 + 흰 반사점 */
+  function pupil(ctx, x, y, r, color, highlights) {
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, TAU);
     ctx.fill();
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = GLINT;
     for (var i = 0; i < highlights.length; i++) {
       var h = highlights[i];
       ctx.beginPath();
@@ -27,8 +40,8 @@
   }
 
   /* 선으로 그리는 눈 (곡선 방향만 다르다) */
-  function curveEye(ctx, x, y, rx, ry, up) {
-    ctx.strokeStyle = INK;
+  function curveEye(ctx, x, y, rx, ry, up, color) {
+    ctx.strokeStyle = color;
     ctx.lineWidth = 3.4;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -40,19 +53,125 @@
     ctx.stroke();
   }
 
+  /* 양 끝이 뾰족한 아몬드 눈.
+     tilt > 0 이면 바깥쪽 끝이 올라가고, < 0 이면 내려간다.
+     side: -1 왼쪽 눈, 1 오른쪽 눈 */
+  function almondEye(ctx, x, y, side, tilt, color) {
+    var a = 10;      // 가로 반폭
+    var top = 16;    // 위쪽 곡선 제어점 (실제 높이는 절반)
+    var bottom = 11; // 아래쪽 곡선 제어점
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(-side * tilt);
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(-a, 0);
+    ctx.quadraticCurveTo(0, -top, a, 0);
+    ctx.quadraticCurveTo(0, bottom, -a, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // 반사점은 기울기와 상관없이 항상 왼쪽 위 (다른 눈들과 빛 방향을 맞춘다)
+    ctx.fillStyle = GLINT;
+    ctx.beginPath();
+    ctx.arc(x - 2.6, y - 2.4, 2.6, 0, TAU);
+    ctx.fill();
+  }
+
+  /* 반쯤 감은 눈: 위 눈꺼풀 선 + 그 아래로 보이는 눈동자 */
+  function halfEye(ctx, x, y, color) {
+    var lidY = y - 1.8;
+
+    // 눈꺼풀 아래로 보이는 눈동자
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(x, lidY, 6.2, 5.6, 0, 0, Math.PI);
+    ctx.closePath();
+    ctx.fill();
+
+    // 위 눈꺼풀 선 (눈동자보다 조금 넓게)
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - 8.2, lidY - 0.2);
+    ctx.quadraticCurveTo(x, lidY - 3.2, x + 8.2, lidY - 0.2);
+    ctx.stroke();
+
+    ctx.fillStyle = GLINT;
+    ctx.beginPath();
+    ctx.arc(x - 2.2, lidY + 1.8, 1.7, 0, TAU);
+    ctx.fill();
+  }
+
+  /* 눈 종류. (ctx, x, y, side, color) */
   var EYE_STYLES = {
-    round: function (ctx, x, y) {
-      pupil(ctx, x, y, 8, [[-0.32, -0.34, 0.3]]);
+    round: function (ctx, x, y, side, c) {
+      pupil(ctx, x, y, 8, c, [[-0.32, -0.34, 0.3]]);
     },
-    sparkle: function (ctx, x, y) {
-      pupil(ctx, x, y, 9.2, [[-0.33, -0.33, 0.34], [0.28, 0.32, 0.18]]);
+    sparkle: function (ctx, x, y, side, c) {
+      pupil(ctx, x, y, 9.2, c, [[-0.33, -0.33, 0.34], [0.28, 0.32, 0.18]]);
     },
-    smile: function (ctx, x, y) {
-      curveEye(ctx, x, y, 7.2, 5.4, true);
+    smile: function (ctx, x, y, side, c) {
+      curveEye(ctx, x, y, 7.2, 5.4, true, c);
     },
-    sleepy: function (ctx, x, y) {
-      curveEye(ctx, x, y, 6.4, 4.2, false);
+    sleepy: function (ctx, x, y, side, c) {
+      curveEye(ctx, x, y, 6.4, 4.2, false, c);
+    },
+    upturned: function (ctx, x, y, side, c) {   // 올라간 눈
+      almondEye(ctx, x, y, side, 0.42, c);
+    },
+    downturned: function (ctx, x, y, side, c) { // 내려간 눈
+      almondEye(ctx, x, y, side, -0.38, c);
+    },
+    half: function (ctx, x, y, side, c) {       // 반 눈
+      halfEye(ctx, x, y, c);
     }
+  };
+
+  /* ---------- 입 ---------- */
+
+  /* ω(3을 눕힌) 모양 */
+  function mouthThree(ctx, y) {
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-6.6, y);
+    ctx.quadraticCurveTo(-3.3, y + 4.6, 0, y);
+    ctx.quadraticCurveTo(3.3, y + 4.6, 6.6, y);
+    ctx.stroke();
+  }
+
+  /* ^ 모양. 곡선으로 그리면 찡그린 입처럼 보여서 꺾인 선으로 그린다. */
+  function mouthCaret(ctx, y) {
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-5.2, y + 2.8);
+    ctx.lineTo(0, y - 2.2);
+    ctx.lineTo(5.2, y + 2.8);
+    ctx.stroke();
+  }
+
+  /* . 모양 (작고 동그란 입) */
+  function mouthDot(ctx, y) {
+    ctx.fillStyle = INK;
+    ctx.beginPath();
+    ctx.ellipse(0, y + 0.8, 3, 3.5, 0, 0, TAU);
+    ctx.fill();
+  }
+
+  var MOUTH_STYLES = {
+    three: mouthThree,
+    caret: mouthCaret,
+    dot: mouthDot
   };
 
   function drawCheeks(ctx) {
@@ -65,24 +184,12 @@
     }
   }
 
-  /* ω 모양 입 */
-  function drawMouth(ctx) {
-    var y = ANCHOR.faceCenter.y + ANCHOR.mouthDy;
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = 2.4;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(-6.6, y);
-    ctx.quadraticCurveTo(-3.3, y + 4.6, 0, y);
-    ctx.quadraticCurveTo(3.3, y + 4.6, 6.6, y);
-    ctx.stroke();
-  }
-
   /* pose.blink 가 true면 눈 종류와 상관없이 감은 눈으로 그린다. */
   function drawEyes(ctx, state, pose) {
     var y = ANCHOR.faceCenter.y + ANCHOR.eyeDy;
     var style = EYE_STYLES[state.eyes] || EYE_STYLES.round;
+    var color = state.eyeColor || EYE_COLORS[0];
+    var mouth = MOUTH_STYLES[state.mouth] || MOUTH_STYLES.three;
     var blinking = pose && pose.blink;
 
     ctx.save();
@@ -92,16 +199,18 @@
       var x = s * ANCHOR.eyeDx;
       if (blinking) {
         // 깜빡일 때는 눈 종류와 상관없이 납작한 선 한 줄
-        curveEye(ctx, x, y, 7.6, 1.8, false);
+        curveEye(ctx, x, y, 7.6, 1.8, false, color);
       } else {
-        style(ctx, x, y);
+        style(ctx, x, y, s, color);
       }
     }
 
-    drawMouth(ctx);
+    mouth(ctx, ANCHOR.faceCenter.y + ANCHOR.mouthDy);
     ctx.restore();
   }
 
-  PUDDING.EYE_STYLES = ['round', 'sparkle', 'smile', 'sleepy'];
+  PUDDING.EYE_STYLES = ['round', 'sparkle', 'smile', 'sleepy', 'upturned', 'downturned', 'half'];
+  PUDDING.MOUTH_STYLES = ['three', 'caret', 'dot'];
+  PUDDING.EYE_COLORS = EYE_COLORS;
   PUDDING.drawEyes = drawEyes;
 })(window);
