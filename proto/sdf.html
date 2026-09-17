@@ -381,23 +381,28 @@ void main(){
   var uEarZ = gl.getUniformLocation(prog, 'uEarZ');
   var uEarFlat = gl.getUniformLocation(prog, 'uEarFlat');
 
-  /* 동물 = 귀 치수표 (레퍼런스 Ear Dimensions, 전체 높이 H = 1 기준)
-       eh  귀 높이   — 몸체 표면에서 귀 끝까지
-       ew  귀 간격   — 두 귀 축 사이 거리
-       es  귀 돌출   — 귀 밑동 굵기(지름)
-       ea  귀 기울기 — 세로에서 바깥으로 기운 각도(도)
-     tip   단면도의 끝 모양을 밑동 대비 비율로 옮긴 값
-     drop  늘어진 귀(강아지·롭이어). 표의 eh는 머리 위로 솟은 높이라
-           늘어진 길이는 len으로 따로 준다. */
+  /* 동물 = 귀 모양.
+     레퍼런스의 치수표는 이미지와 맞지 않아 쓰지 않는다.
+     FRONT 뷰 이미지를 3배로 확대해 직접 잰 값이다. (전체 높이 H = 1 기준을
+     이 모델의 몸통 높이 0.73에 맞춰 환산)
+
+       baseX  귀가 몸에서 나오는 좌우 위치
+       tipX/tipY  귀 끝의 위치
+       r1/r2  밑동/끝 굵기
+     귀 끝과 밑동을 직접 지정하므로 길이와 기울기는 계산해서 나온다. */
   var EAR_SPEC = {
-    cat:      { eh: 0.28, ew: 0.60, es: 0.25, ea: 20, tip: 0.45 },  // 삼각형 곡선
-    dog:      { eh: 0.18, ew: 0.85, es: 0.26, ea: 35, tip: 0.72, drop: 1, len: 0.40, exDrop: 0.33, ezDrop: 0.52, eyDrop: 0.60 },  // 둥근 처짐
-    rabbit:   { eh: 0.45, ew: 0.35, es: 0.30, ea: 10, tip: 0.55 },  // 타원형
-    lop:      { eh: 0.30, ew: 0.70, es: 0.30, ea: 22, tip: 0.68, drop: 1, len: 0.52, exDrop: 0.30, ezDrop: 0.50, eyDrop: 0.62 },  // 긴 타원형
-    bear:     { eh: 0.22, ew: 0.70, es: 0.20, ea: 0,  tip: 0.90 },  // 반원형
-    mouse:    { eh: 0.30, ew: 0.65, es: 0.22, ea: 10, tip: 0.95 },  // 원형
-    fox:      { eh: 0.40, ew: 0.55, es: 0.28, ea: 25, tip: 0.30 },  // 날카로운 곡선
-    squirrel: { eh: 0.32, ew: 0.50, es: 0.25, ea: 15, tip: 0.50 }   // S자 곡선
+    // r1/r2는 "귀 중간 굵기"가 잰 값과 맞도록 잡는다.
+    // 밑동 일부는 몸에 묻히므로 밑동을 그냥 잰 값으로 주면 귀가 가늘어진다.
+    // 곰·쥐는 머리 위에 얹힌 "공"이다. 밑동과 끝을 같은 굵기로 두고
+    // 길이를 거의 0으로 만들면 구가 된다. 블렌딩도 작게 줘야 공으로 보인다.
+    cat:      { baseX: 0.28, tipX: 0.33, tipY: 1.04, r1: 0.200, r2: 0.085, k: 0.10 },
+    dog:      { baseX: 0.44, tipX: 0.50, tipY: 0.32, r1: 0.150, r2: 0.130, baseY: 0.72, z: 0.44, flat: 0.42, k: 0.055 },
+    rabbit:   { baseX: 0.16, tipX: 0.20, tipY: 1.21, r1: 0.125, r2: 0.090, k: 0.09 },
+    lop:      { baseX: 0.42, tipX: 0.48, tipY: 0.18, r1: 0.140, r2: 0.125, baseY: 0.66, z: 0.42, flat: 0.42, k: 0.055 },
+    bear:     { baseX: 0.35, tipX: 0.35, tipY: 1.07, r1: 0.145, r2: 0.145, ball: 1, k: 0.060 },
+    mouse:    { baseX: 0.39, tipX: 0.39, tipY: 1.05, r1: 0.175, r2: 0.175, ball: 1, k: 0.060 },
+    fox:      { baseX: 0.35, tipX: 0.42, tipY: 1.25, r1: 0.210, r2: 0.060, k: 0.09 },
+    squirrel: { baseX: 0.28, tipX: 0.34, tipY: 1.13, r1: 0.185, r2: 0.100, k: 0.10 }
   };
 
   /* 레퍼런스 Color Variations */
@@ -421,33 +426,21 @@ void main(){
     return -0.22 + 0.95*Math.sqrt(k) + 0.34*z;
   }
 
-  /* 치수표 → 셰이더가 쓰는 원뿔 파라미터 */
+  /* 잰 값 → 셰이더가 쓰는 원뿔 파라미터 */
   function earParams(name){
     var S = EAR_SPEC[name] || EAR_SPEC.cat;
-    // 늘어진 귀는 몸통(반폭 0.60) 가장자리에 걸치도록 내보내야
-    // 안쪽은 묻히고 바깥쪽만 귀판으로 드러난다
-    var ex = S.drop ? S.exDrop : S.ew / 2;
-    var er1 = S.es / 2;
-    var er2 = er1 * S.tip;
-    // 늘어진 귀는 몸통 앞면 밖으로 나와야 귀판으로 보인다
-    var ez = S.drop ? S.ezDrop : 0.10;
-    var top = bodyTopAt(ex, ez);
-    var rad = S.ea * Math.PI / 180;
-    var ey, eh, tilt;
-    if(S.drop){
-      // 머리 옆 위쪽에 붙어 바깥·아래로 늘어진다
-      ey = S.eyDrop;
-      eh = Math.max(0.05, S.len - er2);
-      tilt = rad - Math.PI;          // 아래를 향하고 ea 만큼 바깥으로
-    } else {
-      // 몸체 표면에서 eh 만큼 솟는다
-      ey = top - er1 * 0.55;
-      eh = Math.max(0.05, top + S.eh - ey - er2);
-      tilt = -rad;                   // 세로에서 바깥으로 ea
-    }
+    var ez = S.z !== undefined ? S.z : 0.10;
+    // 밑동은 몸 표면보다 살짝 안쪽에서 시작해야 이음새가 안 보인다
+    var ey = S.baseY !== undefined ? S.baseY
+           : S.ball ? S.tipY - 2*S.r2 - 0.02              // 공: 길이가 거의 0인 원뿔
+           : bodyTopAt(S.baseX, ez) - S.r1 * 0.45;
+    var dx = S.tipX - S.baseX, dy = S.tipY - ey;
+    var L = Math.sqrt(dx*dx + dy*dy);            // 밑동에서 귀 끝까지
+    var eh = Math.max(0.03, L - S.r2);           // 원뿔의 높이
+    var tilt = -Math.atan2(dx, dy);              // 세로에서 바깥으로 기운 각
     // 블렌딩: 굵은 귀일수록 크게 뭉갠다 (레퍼런스 Tips 1·2)
-    var k = S.drop ? 0.050 : Math.min(0.20, 0.090 + er1 * 0.60);
-    return { a: [ex, ey, er1, er2], b: [eh, tilt, k], z: ez, flat: S.drop ? 0.50 : 1.0 };
+    var k = S.k !== undefined ? S.k : Math.min(0.20, 0.085 + S.r1 * 0.60);
+    return { a: [S.baseX, ey, S.r1, S.r2], b: [eh, tilt, k], z: ez, flat: S.flat || 1.0 };
   }
 
   window.PUDDING3D = {
