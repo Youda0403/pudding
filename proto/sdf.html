@@ -26,7 +26,9 @@ uniform vec3  uEarB;      // x: 길이, y: 기울기(음수일수록 바깥/아�
 uniform vec3  uColor;     // 푸딩 색
 uniform float uFace;      // 0 기본형(눈), 1 앙증형(+입), 2 볼터치형, 3 꾸미기형
 uniform float uEarZ;      // 귀의 앞뒤 위치
-uniform float uEarFlat;   // 1보다 작으면 납작한 귀판 (늘어진 귀)
+uniform float uEarFlat;
+uniform float uEarTiltZ;   // 귀가 앞뒤로 기운 각 (레퍼런스의 ea)
+uniform vec2  uBody;       // 몸통 (전단, 앞뒤 눌림)   // 1보다 작으면 납작한 귀판 (늘어진 귀)
 
 const float PI = 3.14159265;
 
@@ -70,17 +72,25 @@ float sdDisc(vec3 p, float r, float h){
 mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 
 /* ---------- 푸딩 ----------
-   레퍼런스 도면 기준. 높이 H = 1.0 을 단위로 삼는다.
-     H : W : D = 1 : 1.2 : 1.4   (가로로 넓고 앞뒤로 더 깊다)
-     z+ 가 앞(얼굴 쪽)
+   귀 레퍼런스 시트 FRONT 칸의 실루엣을 직접 재서 맞춘 형태다.
+   바닥이 y=0, 몸통 밑동 반폭 0.66 을 단위로 삼는다.
 
-   도면의 Shape Construction 순서를 그대로 따른다.
-     1) 부드러운 반구 형태의 기본 몸체
-     2) 두 개의 부드러운 봉우리(귀)
-     3) 크게 뭉쳐서 매끄럽게 연결
-     4) 바닥을 두 갈래로 살짝 들어간 곡면으로
+   레퍼런스에서 잰 몸통 옆선 (높이 → 바깥 반폭)
+     0.05 0.657 / 0.20 0.661 / 0.31 0.643 / 0.41 0.617
+     0.51 0.573 / 0.62 0.508 / 0.72 0.407 / 0.82 0.224 / 0.86 0
+   이 점들은 "중심 (0, 0.198), 반지름 0.662 인 원"에 거의 그대로 얹힌다.
+   즉 낮고 넓은 푸딩 틀 모양 — 바닥은 넓고 거의 수직, 위로 갈수록
+   둥글게 좁아지다가 0.86 에서 정수리로 닫힌다.
+   모서리 반지름이 가로 반폭과 같은 둥근 상자가 정확히 그 곡선이다.
 
-   푸딩이므로 어디에도 날카로운 모서리가 없다. 스무딩을 충분히 준다. */
+   측면 칸에서 잰 앞뒤 깊이는 좌우 폭의 0.90 배다. 높이별로 재 봐도
+   깊이/폭 이 0.85~0.93 으로 거의 일정하다. 즉 같은 옆선을 z 로만 눌러
+   놓은 모양이다. (W : D = 1.32 : 1.19)
+
+   모든 동물이 이 몸통을 그대로 쓰고 귀만 바뀐다. */
+const float BODY_R  = 0.662;     // 옆선 원의 반지름
+const float BODY_CY = 0.160;     // 둥근 상자 중심 높이 (정수리 = CY + 0.70)
+
 float sdPudding(vec3 p){
   // 탱글 흔들림: 위로 갈수록 크게 기운다
   float w = 0.030*sin(uTime*2.2);
@@ -88,27 +98,34 @@ float sdPudding(vec3 p){
   q.x -= w * q.y * q.y * 2.0;
   q.z -= w * 0.35 * q.y * q.y;
 
-  // 1) 기본 몸체 — 부드러운 반구.
-  //    등이 꼬리 쪽으로 완만하게 내려가도록 z에 따라 y를 기울인다(전단).
+  // 1) 몸통 — 낮은 푸딩 틀. 등이 뒤로 조금 낮아지도록 z 로 살짝 전단.
   vec3 qs = q;
-  qs.y -= 0.34 * qs.z;
-  float d = sdEllipsoid(qs - vec3(0.0, -0.22, -0.05), vec3(0.66, 0.95, 0.80));
+  qs.y -= uBody.x * qs.z;          // 등이 뒤로 낮아지는 전단
+  qs.z /= uBody.y;                 // 앞뒤로 눌림
+  float d = sdRoundBox(qs - vec3(0.0, BODY_CY, 0.0),
+                       vec3(BODY_R, 0.700, BODY_R) - BODY_R, BODY_R) * uBody.y;
 
   vec3 e = q; e.x = abs(e.x);
 
-  // 2)+3) 귀 — 부드러운 봉우리 두 개를 크게 블렌딩해서 몸체와 한 덩어리로
+  // 2) 귀 — 몸통에 깊이 묻힌 둥근 원뿔 하나. 몸통과 smooth union 한다.
   vec3 ep = e - vec3(uEarA.x, uEarA.y, uEarZ);
-  ep.xy = rot(uEarB.y) * ep.xy;
-  ep.z /= uEarFlat;                       // 늘어진 귀는 앞뒤로 납작하게
+  ep.zy = rot(uEarTiltZ) * ep.zy;         // 앞뒤로 기울이기 (ea)
+  ep.xy = rot(uEarB.y) * ep.xy;           // 좌우로 벌리기
+  ep.z /= uEarFlat;                       // 늘어진 귀·쥐 귀는 앞뒤로 납작하게
   float ear = sdRoundCone(ep, uEarA.z, uEarA.w, uEarB.x) * uEarFlat;
-  d = smin(d, ear, uEarB.z);
+
+  // 3) 뭉개는 정도를 높이에 따라 바꾼다.
+  //    밑동 쪽은 크게 뭉개 귀와 머리 사이에 목·경계가 안 보이게 하고,
+  //    정수리 위로는 거의 뭉개지 않아 두 귀 사이 골이 레퍼런스처럼 살아난다.
+  float kk = mix(0.012, uEarB.z, 1.0 - smoothstep(0.72, 0.92, q.y));
+  d = smin(d, ear, kk);
 
   // 4) 바닥: 완전히 평평하지 않고 살짝 오목하게 판다
-  float dish = sdEllipsoid(q - vec3(0.0, -0.30, 0.02), vec3(0.55, 0.335, 0.64));
-  d = smax(d, -dish, 0.12);
+  float dish = sdEllipsoid(q - vec3(0.0, -0.075, 0.02), vec3(0.55, 0.115, 0.64));
+  d = smax(d, -dish, 0.10);
 
   // 바닥 가운데를 앞뒤로 얕게 갈라 두 갈래로 만든다
-  float groove = sdEllipsoid(q - vec3(0.0, -0.11, 0.33), vec3(0.125, 0.195, 0.50));
+  float groove = sdEllipsoid(q - vec3(0.0, -0.11, 0.33), vec3(0.125, 0.185, 0.50));
   d = smax(d, -groove, 0.10);
 
   // 접시에 닿는 면
@@ -120,7 +137,7 @@ float sdPudding(vec3 p){
    x: 거리, y: 재질 (0 푸딩, 1 접시, 2 카라멜) */
 vec2 map(vec3 p){
   vec2 res = vec2(sdPudding(p), 0.0);
-  if(uMode > 0.5) return res;      // 형태 검증 모드: 푸딩만
+  if(uMode > 0.5 && uMode < 2.5) return res;   // 실루엣 검증: 푸딩만
 
   // 부어놓은 듯 가장자리가 고르지 않은 웅덩이
   float ang = atan(p.z, p.x);
@@ -207,20 +224,20 @@ float faceInk(vec3 p, vec3 n){
   if(front <= 0.0) return 0.0;
   vec2 a = vec2(abs(p.x), p.y);
 
-  float eye = sdSeg2(a, vec2(0.100, 0.485), vec2(0.172, 0.485)) - 0.020;
+  float eye = sdSeg2(a, vec2(0.145, 0.455), vec2(0.225, 0.455)) - 0.020;
   float d = eye;
 
   if(uFace > 0.5){           // 입: 코 점 하나 + ω 가 붙은 자국
-    float nose = length(vec2(p.x, p.y) - vec2(0.0, 0.418)) - 0.016;
-    float lip  = length(a - vec2(0.016, 0.400)) - 0.015;
+    float nose = length(vec2(p.x, p.y) - vec2(0.0, 0.350)) - 0.016;
+    float lip  = length(a - vec2(0.016, 0.332)) - 0.015;
     d = min(d, smin(nose, lip, 0.014));
   }
   if(uFace > 2.5){           // 수염
-    float wa = sdSeg2(a, vec2(0.235, 0.505), vec2(0.320, 0.515)) - 0.010;
-    float wb = sdSeg2(a, vec2(0.235, 0.470), vec2(0.322, 0.462)) - 0.010;
+    float wa = sdSeg2(a, vec2(0.300, 0.472), vec2(0.385, 0.482)) - 0.010;
+    float wb = sdSeg2(a, vec2(0.300, 0.437), vec2(0.387, 0.429)) - 0.010;
     d = min(d, min(wa, wb));
     // 오른쪽 볼의 하트
-    vec2 h = vec2(p.x - 0.255, p.y - 0.555);
+    vec2 h = vec2(p.x - 0.315, p.y - 0.560);
     float hd = abs(length(h) - 0.045) - 0.011;
     if(h.y < -0.01) hd = length(h) - 0.030;
     d = min(d, hd);
@@ -233,7 +250,7 @@ float blushMask(vec3 p, vec3 n){
   if(uFace < 1.5 || uFace > 2.5) return 0.0;
   float front = smoothstep(0.25, 0.62, n.z);
   vec2 a = vec2(abs(p.x), p.y);
-  return smoothstep(0.075, 0.020, length((a - vec2(0.255, 0.425)) * vec2(1.0, 1.5))) * front;
+  return smoothstep(0.075, 0.020, length((a - vec2(0.320, 0.372)) * vec2(1.0, 1.5))) * front;
 }
 
 /* 위는 밝은 하늘, 아래는 따뜻한 바닥 반사 */
@@ -255,27 +272,35 @@ void main(){
 
   // 카메라
   vec3 ro = vec3(1.05, 0.82, 2.45);
-  vec3 ta = vec3(0.0, 0.40, 0.0);
+  vec3 ta = vec3(0.0, 0.46, 0.0);
   float zoom = 2.1;
-  if(uMode > 1.5){                  // 형태 검증: 측면
-    ro = vec3(5.0, 0.50, 0.0);
-    ta = vec3(0.0, 0.50, 0.0);
-    zoom = 5.4;
-  } else if(uMode > 0.5){           // 형태 검증: 정면·거의 직교
-    ro = vec3(0.0, 0.50, 5.0);
-    ta = vec3(0.0, 0.50, 0.0);
-    zoom = 5.4;
+  if(uMode > 2.5){                  // 레퍼런스 비교용: 거의 정면
+    ro = vec3(0.16, 0.62, 2.90);
+    ta = vec3(0.0, 0.56, 0.0);
+    zoom = 2.05;
+  } else if(uMode > 1.5){           // 형태 검증: 측면
+    ro = vec3(5.0, 0.62, 0.0);
+    ta = vec3(0.0, 0.62, 0.0);
+  } else if(uMode > 0.5){           // 형태 검증: 정면
+    ro = vec3(0.0, 0.62, 5.0);
+    ta = vec3(0.0, 0.62, 0.0);
   }
   vec3 ww = normalize(ta - ro);
   vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));
   vec3 vv = cross(uu, ww);
   vec3 rd = normalize(uv.x*uu + uv.y*vv + zoom*ww);
+  // 실루엣 검증(1·2)은 반드시 직교 투영으로 본다.
+  // 원근으로 보면 앞쪽(z+)이 확대돼 폭이 부풀어 레퍼런스와 비교할 수 없다.
+  if(uMode > 0.5 && uMode < 2.5){
+    ro = ro + uu*(uv.x*1.05) + vv*(uv.y*1.05);
+    rd = ww;
+  }
 
   vec3 col = background(uv);
   bool isBg = true;
 
   vec2 hit = rayMarch(ro, rd);
-  if(uMode > 0.5){
+  if(uMode > 0.5 && uMode < 2.5){
     fragColor = vec4(vec3(hit.y >= 0.0 ? 0.1 : 1.0), 1.0);
     return;
   }
@@ -380,29 +405,43 @@ void main(){
   var uFace = gl.getUniformLocation(prog, 'uFace');
   var uEarZ = gl.getUniformLocation(prog, 'uEarZ');
   var uEarFlat = gl.getUniformLocation(prog, 'uEarFlat');
+  var uEarTiltZ = gl.getUniformLocation(prog, 'uEarTiltZ');
+  var uBody = gl.getUniformLocation(prog, 'uBody');
 
   /* 동물 = 귀 모양.
      레퍼런스의 치수표는 이미지와 맞지 않아 쓰지 않는다.
-     FRONT 뷰 이미지를 3배로 확대해 직접 잰 값이다. (전체 높이 H = 1 기준을
-     이 모델의 몸통 높이 0.73에 맞춰 환산)
+     귀 레퍼런스 시트 FRONT 칸을 4배로 확대해 눈으로 보고 옮긴 값이다.
+     좌표는 몸통과 같은 단위. 바닥이 y=0, 몸통 밑동 반폭이 0.66,
+     몸통 꼭대기가 y=0.82.
 
-       baseX  귀가 몸에서 나오는 좌우 위치
-       tipX/tipY  귀 끝의 위치
-       r1/r2  밑동/끝 굵기
-     귀 끝과 밑동을 직접 지정하므로 길이와 기울기는 계산해서 나온다. */
+       bx, by   귀 밑동(원뿔 바닥면) 중심. 몸통 안에 묻히도록 잡는다
+       tx, ty   귀 끝(둥근 마감의 구 중심)
+       r1, r2   밑동 / 끝 굵기
+       z        앞뒤 위치
+       flat     앞뒤로 납작한 정도 (1 = 안 납작함). 늘어진 귀·쥐 귀가 판때기다
+       k        몸통과 뭉개서 잇는 정도
+     길이와 기울기는 밑동→끝 벡터에서 계산한다. */
   var EAR_SPEC = {
-    // r1/r2는 "귀 중간 굵기"가 잰 값과 맞도록 잡는다.
-    // 밑동 일부는 몸에 묻히므로 밑동을 그냥 잰 값으로 주면 귀가 가늘어진다.
-    // 곰·쥐는 머리 위에 얹힌 "공"이다. 밑동과 끝을 같은 굵기로 두고
-    // 길이를 거의 0으로 만들면 구가 된다. 블렌딩도 작게 줘야 공으로 보인다.
-    cat:      { baseX: 0.28, tipX: 0.33, tipY: 1.04, r1: 0.200, r2: 0.085, k: 0.10 },
-    dog:      { baseX: 0.44, tipX: 0.50, tipY: 0.32, r1: 0.150, r2: 0.130, baseY: 0.72, z: 0.44, flat: 0.42, k: 0.055 },
-    rabbit:   { baseX: 0.16, tipX: 0.20, tipY: 1.21, r1: 0.125, r2: 0.090, k: 0.09 },
-    lop:      { baseX: 0.42, tipX: 0.48, tipY: 0.18, r1: 0.140, r2: 0.125, baseY: 0.66, z: 0.42, flat: 0.42, k: 0.055 },
-    bear:     { baseX: 0.35, tipX: 0.35, tipY: 1.07, r1: 0.145, r2: 0.145, ball: 1, k: 0.060 },
-    mouse:    { baseX: 0.39, tipX: 0.39, tipY: 1.05, r1: 0.175, r2: 0.175, ball: 1, k: 0.060 },
-    fox:      { baseX: 0.35, tipX: 0.42, tipY: 1.25, r1: 0.210, r2: 0.060, k: 0.09 },
-    squirrel: { baseX: 0.28, tipX: 0.34, tipY: 1.13, r1: 0.185, r2: 0.100, k: 0.10 }
+    // 고양이·여우·다람쥐: 몸통 위 모서리가 그대로 뾰족하게 솟은 삼각 귀.
+    // 밑동을 굵게(r1 0.3 이상) 잡아 귀 바깥선이 몸통 옆선과 한 줄로 이어지게 한다.
+    // 그림에서 가장 눈에 띄는 특징이라 여기가 어긋나면 "뿔"로 보인다.
+    cat:      { bx: 0.258, by: 0.758, tx: 0.318, ty: 1.109, r1: 0.225, r2: 0.030, k: 0.101, z: 0.06, ea: 0.0 },
+    fox:      { bx: 0.300, by: 0.45, tx: 0.400, ty: 1.36, r1: 0.285, r2: 0.028, k: 0.10 },
+    squirrel: { bx: 0.290, by: 0.45, tx: 0.350, ty: 1.10, r1: 0.275, r2: 0.090, k: 0.12 },
+
+    // 토끼: 굵기가 거의 일정한 긴 기둥 두 개. 가운데 가까이 붙어 곧게 선다.
+    rabbit:   { bx: 0.238, by: 0.52, tx: 0.238, ty: 1.40, r1: 0.190, r2: 0.160, flat: 0.80, k: 0.11 },
+
+    // 곰: 머리 위 모서리에 얹힌 공. 길이 0 인 원뿔 = 구.
+    // 공 아래끝이 몸통 표면에 겨우 닿게 두면 그림처럼 잘록한 목이 생긴다.
+    bear:     { bx: 0.34, by: 0.94, tx: 0.34, ty: 0.98, r1: 0.230, r2: 0.230, k: 0.12 },
+    // 쥐: 곰보다 크고 앞뒤로 납작한 원반. 더 바깥에 붙는다.
+    mouse:    { bx: 0.38, by: 0.95, tx: 0.38, ty: 0.99, r1: 0.255, r2: 0.255, z: 0.02, flat: 0.45, k: 0.11 },
+
+    // 강아지·롭이어: 머리 옆에 붙어 아래로 늘어진 납작한 판.
+    // 밑동보다 끝이 굵어 아래가 통통하다. 밑동은 몸통 표면 안쪽에 있어야 한다.
+    dog:      { bx: 0.42, by: 0.70, tx: 0.62, ty: 0.20, r1: 0.130, r2: 0.170, z: 0.10, flat: 0.45, k: 0.07 },
+    lop:      { bx: 0.36, by: 0.68, tx: 0.62, ty: 0.10, r1: 0.150, r2: 0.190, z: 0.10, flat: 0.45, k: 0.07 }
   };
 
   /* 레퍼런스 Color Variations */
@@ -417,30 +456,17 @@ void main(){
     squirrel: [0.775, 0.565, 0.385]
   };
 
-  /* 몸체 표면의 높이. 셰이더의 몸통 식과 같은 값이어야
-     귀가 "몸체에서 eh만큼 솟은" 상태가 된다. */
-  function bodyTopAt(x, z){
-    var zz = z + 0.05;
-    var k = 1.0 - (x/0.66)*(x/0.66) - (zz/0.80)*(zz/0.80);
-    if(k <= 0.0) return 0.0;
-    return -0.22 + 0.95*Math.sqrt(k) + 0.34*z;
-  }
-
-  /* 잰 값 → 셰이더가 쓰는 원뿔 파라미터 */
+  /* 잰 값 → 셰이더가 쓰는 원뿔 파라미터.
+     원뿔은 밑동에서 끝까지의 방향으로 세우므로 길이 = 두 점 사이 거리,
+     기울기 = 세로축에서 벌어진 각이다. */
   function earParams(name){
     var S = EAR_SPEC[name] || EAR_SPEC.cat;
-    var ez = S.z !== undefined ? S.z : 0.10;
-    // 밑동은 몸 표면보다 살짝 안쪽에서 시작해야 이음새가 안 보인다
-    var ey = S.baseY !== undefined ? S.baseY
-           : S.ball ? S.tipY - 2*S.r2 - 0.02              // 공: 길이가 거의 0인 원뿔
-           : bodyTopAt(S.baseX, ez) - S.r1 * 0.45;
-    var dx = S.tipX - S.baseX, dy = S.tipY - ey;
-    var L = Math.sqrt(dx*dx + dy*dy);            // 밑동에서 귀 끝까지
-    var eh = Math.max(0.03, L - S.r2);           // 원뿔의 높이
-    var tilt = -Math.atan2(dx, dy);              // 세로에서 바깥으로 기운 각
-    // 블렌딩: 굵은 귀일수록 크게 뭉갠다 (레퍼런스 Tips 1·2)
-    var k = S.k !== undefined ? S.k : Math.min(0.20, 0.085 + S.r1 * 0.60);
-    return { a: [S.baseX, ey, S.r1, S.r2], b: [eh, tilt, k], z: ez, flat: S.flat || 1.0 };
+    var ez = S.z !== undefined ? S.z : 0.06;
+    var dx = S.tx - S.bx, dy = S.ty - S.by;
+    var eh = Math.max(0.0, Math.sqrt(dx*dx + dy*dy));
+    var tilt = -Math.atan2(dx, dy);
+    return { a: [S.bx, S.by, S.r1, S.r2], b: [eh, tilt, S.k], z: ez,
+             flat: S.flat || 1.0, tiltZ: S.ea || 0.0 };
   }
 
   window.PUDDING3D = {
@@ -448,6 +474,7 @@ void main(){
     animal: 'cat', color: [0.995, 0.912, 0.700],
     useAnimalColor: true, animalColors: ANIMAL_COLOR,
     animals: EAR_SPEC, earParams: earParams,
+    body: { shear: 0.16, zs: 0.90 },
     wobblePeriod: 2.0*Math.PI/2.2,
     draw: function(t){
     var A = earParams(window.PUDDING3D.animal);
@@ -461,6 +488,8 @@ void main(){
     gl.uniform3f(uEarB, A.b[0], A.b[1], A.b[2]);
     gl.uniform1f(uEarZ, A.z);
     gl.uniform1f(uEarFlat, A.flat);
+    gl.uniform1f(uEarTiltZ, A.tiltZ);
+    gl.uniform2f(uBody, window.PUDDING3D.body.shear, window.PUDDING3D.body.zs);
     gl.uniform3f(uColor, C[0], C[1], C[2]);
     gl.uniform1f(uFace, window.PUDDING3D.face);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
