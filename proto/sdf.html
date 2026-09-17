@@ -39,6 +39,15 @@ float sdRoundCone(vec3 p, float r1, float r2, float h){
   if(k > a*h) return length(q - vec2(0.0, h)) - r2;
   return dot(q, vec2(a, b)) - r1;
 }
+float sdRoundBox(vec3 p, vec3 b, float r){
+  vec3 q = abs(p) - b;
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+float sdEllipsoid(vec3 p, vec3 r){
+  float k0 = length(p/r);
+  float k1 = length(p/(r*r));
+  return k0*(k0 - 1.0)/k1;
+}
 float sdDisc(vec3 p, float r, float h){
   vec2 d = vec2(length(p.xz) - r, abs(p.y) - h);
   return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
@@ -48,38 +57,42 @@ mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 /* ---------- 푸딩 ----------
    몸통과 귀를 smooth-min 으로 합치므로 이음새가 아예 존재하지 않는다.
    "고양이 모양 젤리 한 덩어리"가 된다. */
+/* ---------- 푸딩 ----------
+   도면 기준. z+ 가 앞(얼굴 쪽).
+     정면: 폭 W=1.0, 높이 1.17W. 옆면이 거의 수직인 둥근 덩어리 위에
+           봉우리 두 개. 바닥에 발.
+     측면: 깊이 1.17W. 앞이 높고 뒤로 갈수록 낮아지는 쐐기.
+   전부 smooth-min으로 뭉쳐서 하나의 젤리 덩어리가 되게 한다.
+   푸딩이므로 어디에도 각이 없고 곡선이 완만해야 한다 → smooth 계수를 크게 잡는다. */
 float sdPudding(vec3 p){
   // 탱글 흔들림: 위로 갈수록 크게 기운다
-  float w = 0.035*sin(uTime*2.2);
+  float w = 0.030*sin(uTime*2.2);
   vec3 q = p;
-  q.x -= w * q.y * q.y * 2.2;
-  q.z -= w * 0.4 * q.y * q.y;
+  q.x -= w * q.y * q.y * 2.0;
+  q.z -= w * 0.35 * q.y * q.y;
 
-  // 참고 사진의 실루엣을 픽셀로 추출해 수치로 맞춘 값이다.
-  //   높이/폭 = 1.082 (참고 1.085)
-  //   귀 사이 골 바닥 = 0.82H, 귀 하나 굵기 = 0.32W, 골 너비 = 0.10W
-  // 핵심: 0.85H 높이의 실루엣은 몸통이 아니라 "귀 두 개"가 만든다.
-  // 그래서 몸통 꼭대기를 전체 높이의 78%로 낮춰야 귀 사이에 골이 생긴다.
-  // (몸통이 그보다 높으면 골을 메워버려서 아무리 귀를 키워도 봉우리가 안 보인다)
-  float body = sdRoundCone(q - vec3(0.0, 0.031, 0.0), 0.375, 0.246, 0.569);
+  // 몸: 앞쪽이 높고 뒤로 낮아지는 덩어리. 둥근 상자 두 개를 크게 뭉친다.
+  // 상자의 "심"은 작게, 모서리 반지름을 크게 잡아야 각이 안 남는다.
+  // 옆면은 수직이되 모든 모서리가 완만하게 둥글다.
+  float front = sdRoundBox(q - vec3(0.0, 0.34, 0.12), vec3(0.20, 0.22, 0.06), 0.30);
+  float back  = sdEllipsoid(q - vec3(0.0, 0.20, -0.30), vec3(0.47, 0.33, 0.34));
+  float d = smin(front, back, 0.24);
 
   vec3 e = q; e.x = abs(e.x);
 
-  vec3 ep = e - vec3(0.226, 0.461, 0.0);
-  ep.xy = rot(-0.035) * ep.xy;
-  float ear = sdRoundCone(ep, 0.275, 0.102, 0.521);
+  // 귀: 끝이 도톰한 봉우리 두 개. 몸 앞쪽에 얹힌다.
+  vec3 ep = e - vec3(0.290, 0.58, 0.07);
+  ep.xy = rot(-0.05) * ep.xy;
+  float ear = sdRoundCone(ep, 0.270, 0.150, 0.440);
+  d = smin(d, ear, 0.140);
 
-  // smooth 계수가 크다(0.184). 귀가 몸통에 "붙은" 게 아니라
-  // 아래쪽에서 이미 한 덩어리로 녹아 있다.
-  float d = smin(body, ear, 0.184);
+  // 앞발
+  float fp = sdEllipsoid(e - vec3(0.190, 0.085, 0.330), vec3(0.205, 0.085, 0.180));
+  d = smin(d, fp, 0.190);
 
-  // 앞발: 바닥 앞쪽에 둥글게 튀어나온 두 덩이
-  float paw = length(e - vec3(0.285, 0.075, 0.210)) - 0.140;
-  d = smin(d, paw, 0.055);
-
-  // 밑동이 접시에 눌려 살짝 퍼진 자락
-  float skirt = sdRoundCone(q - vec3(0.0, -0.05, 0.0), 0.400, 0.400, 0.085);
-  d = smin(d, skirt, 0.075);
+  // 뒷발
+  float hp = sdEllipsoid(e - vec3(0.275, 0.085, -0.330), vec3(0.180, 0.085, 0.200));
+  d = smin(d, hp, 0.150);
 
   // 접시에 닿는 면에서 자른다
   d = max(d, -q.y + 0.004);
@@ -95,15 +108,15 @@ vec2 map(vec3 p){
   // 부어놓은 듯 가장자리가 고르지 않은 웅덩이
   float ang = atan(p.z, p.x);
   float wob = 0.030*sin(ang*3.0 + 0.7) + 0.018*sin(ang*5.0 - 1.9);
-  float pool = sdDisc(p - vec3(0.0, 0.007, 0.0), 0.62 + wob, 0.008);
+  float pool = sdDisc(p - vec3(0.0, 0.007, 0.0), 0.78 + wob, 0.008);
   // 액체가 푸딩 밑동을 타고 살짝 오른 부분
   float meniscus = max(sdPudding(p) - 0.030, p.y - 0.048);
   float caramel = smin(pool, meniscus, 0.045);
   if(caramel < res.x) res = vec2(caramel, 2.0);
 
   float plate = min(
-    sdDisc(p - vec3(0.0, -0.010, 0.0), 0.97, 0.014),
-    sdDisc(p - vec3(0.0, -0.036, 0.0), 0.86, 0.018));
+    sdDisc(p - vec3(0.0, -0.010, 0.0), 1.15, 0.014),
+    sdDisc(p - vec3(0.0, -0.036, 0.0), 1.02, 0.018));
   if(plate < res.x) res = vec2(plate, 1.0);
 
   return res;
@@ -169,16 +182,16 @@ float smin2(float a, float b, float k){
 /* 얼굴. 앞을 보는 면에만, 정면에서 본 x/y 위치로 찍는다.
    표면이 어디에 있든 위치가 어긋나지 않는다. */
 float faceMask(vec3 p, vec3 n){
-  float front = smoothstep(0.30, 0.68, n.z);
+  float front = smoothstep(0.35, 0.72, n.z);
   if(front <= 0.0) return 0.0;
   vec2 a = vec2(abs(p.x), p.y);
 
   // 눈: 작고 짧은 점
-  float eye = length(a - vec2(0.150, 0.545)) - 0.023;    // 정원
+  float eye = length(a - vec2(0.200, 0.610)) - 0.026;    // 정원
 
   // 코 점 하나 + 그 아래 ω 입. 세 덩어리를 부드럽게 이어 하나의 자국으로 만든다.
-  float nose = length(vec2(p.x, p.y) - vec2(0.0, 0.470)) - 0.016;
-  float lip  = length(a - vec2(0.016, 0.451)) - 0.015;
+  float nose = length(vec2(p.x, p.y) - vec2(0.0, 0.515)) - 0.018;
+  float lip  = length(a - vec2(0.018, 0.495)) - 0.016;
   float mark = smin2(nose, lip, 0.014);
 
   float d = min(eye, mark);
@@ -203,13 +216,17 @@ void main(){
   vec2 uv = (gl_FragCoord.xy*2.0 - uRes) / uRes.y;
 
   // 카메라
-  vec3 ro = vec3(0.0, 0.70, 2.10);
-  vec3 ta = vec3(0.0, 0.46, 0.0);
+  vec3 ro = vec3(0.92, 0.80, 2.15);
+  vec3 ta = vec3(0.0, 0.50, 0.0);
   float zoom = 2.1;
-  if(uMode > 0.5){                  // 형태 검증: 정면·거의 직교
-    ro = vec3(0.0, 0.54, 5.0);
-    ta = vec3(0.0, 0.54, 0.0);
-    zoom = 7.3;
+  if(uMode > 1.5){                  // 형태 검증: 측면
+    ro = vec3(5.0, 0.60, 0.0);
+    ta = vec3(0.0, 0.60, 0.0);
+    zoom = 6.2;
+  } else if(uMode > 0.5){           // 형태 검증: 정면·거의 직교
+    ro = vec3(0.0, 0.60, 5.0);
+    ta = vec3(0.0, 0.60, 0.0);
+    zoom = 6.2;
   }
   vec3 ww = normalize(ta - ro);
   vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));
@@ -259,7 +276,7 @@ void main(){
       gloss = 0.55; envAmt = 0.10;
     } else {
       // 카라멜. 푸딩에 가까울수록 깊어서 진하다.
-      float deep = smoothstep(0.62, 0.32, length(p.xz));
+      float deep = smoothstep(0.78, 0.40, length(p.xz));
       base = mix(vec3(0.70, 0.31, 0.02), vec3(0.30, 0.10, 0.006), deep);
       gloss = 2.2; envAmt = 0.55;
     }
