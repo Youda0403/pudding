@@ -25,6 +25,8 @@ uniform vec4  uEarA;      // x: 좌우 위치, y: 붙는 높이, z: 밑동 굵�
 uniform vec3  uEarB;      // x: 길이, y: 기울기(음수일수록 바깥/아래로), z: 블렌딩 세기
 uniform vec3  uColor;     // 푸딩 색
 uniform float uFace;      // 0 기본형(눈), 1 앙증형(+입), 2 볼터치형, 3 꾸미기형
+uniform float uEarZ;      // 귀의 앞뒤 위치
+uniform float uEarFlat;   // 1보다 작으면 납작한 귀판 (늘어진 귀)
 
 const float PI = 3.14159265;
 
@@ -95,9 +97,10 @@ float sdPudding(vec3 p){
   vec3 e = q; e.x = abs(e.x);
 
   // 2)+3) 귀 — 부드러운 봉우리 두 개를 크게 블렌딩해서 몸체와 한 덩어리로
-  vec3 ep = e - vec3(uEarA.x, uEarA.y, 0.10);
+  vec3 ep = e - vec3(uEarA.x, uEarA.y, uEarZ);
   ep.xy = rot(uEarB.y) * ep.xy;
-  float ear = sdRoundCone(ep, uEarA.z, uEarA.w, uEarB.x);
+  ep.z /= uEarFlat;                       // 늘어진 귀는 앞뒤로 납작하게
+  float ear = sdRoundCone(ep, uEarA.z, uEarA.w, uEarB.x) * uEarFlat;
   d = smin(d, ear, uEarB.z);
 
   // 4) 바닥: 완전히 평평하지 않고 살짝 오목하게 판다
@@ -299,9 +302,13 @@ void main(){
 
     if(hit.y < 0.5){
       // 푸딩: 부드러운 커스터드. 얇은 곳은 빛이 통과한다.
-      base = uColor;
+      // 지정한 색은 sRGB다. 선형으로 바꿔서 조명 계산에 넣어야
+      // 마지막 감마 보정 뒤에 원래 의도한 색이 나온다.
+      base = pow(uColor, vec3(2.2));
       float sss = translucency(p, n);
-      base += vec3(0.42, 0.24, 0.04) * sss * 0.60;
+      // 얇은 곳이 비쳐 보이는 정도는 본체 색에 비례해야
+      // 어두운 색(곰·쥐)이 하얗게 날아가지 않는다
+      base += base * vec3(0.55, 0.34, 0.10) * sss * 0.95;
       base = mix(base, vec3(0.97, 0.62, 0.60), blushMask(p, n) * 0.55);
       float face = faceInk(p, n);
       base = mix(base, vec3(0.20, 0.14, 0.10), face);
@@ -318,10 +325,10 @@ void main(){
     }
 
     vec3 lin = vec3(0.0);
-    lin += base * dif * sha * vec3(1.06, 1.00, 0.92) * 0.90;
+    lin += base * dif * sha * vec3(1.06, 1.00, 0.92) * 1.15;
     lin += base * bac * 0.20 * vec3(1.00, 0.95, 0.92);
-    lin += base * ao  * skyColor(n) * 0.45;            // 하늘/바닥 앰비언트
-    lin += base * fre * 0.18;
+    lin += base * ao  * skyColor(n) * 0.34;            // 하늘/바닥 앰비언트
+    lin += base * fre * 0.14;
 
     col = lin;
     col = mix(col, env, fre * envAmt);                 // 젖은 표면 반사
@@ -331,7 +338,7 @@ void main(){
 
   // 톤매핑 + 감마 (배경은 이미 완성된 색이라 건드리지 않는다)
   if(!isBg){
-    col = col / (col + 1.0) * 1.92;
+    col = col / (col + 1.0) * 1.62;   // 중간톤을 덜 들어올려 진한 색이 남게
     col = pow(clamp(col, 0.0, 1.0), vec3(0.4545));
   }
   fragColor = vec4(col, 1.0);
@@ -371,38 +378,97 @@ void main(){
   var uEarB = gl.getUniformLocation(prog, 'uEarB');
   var uColor = gl.getUniformLocation(prog, 'uColor');
   var uFace = gl.getUniformLocation(prog, 'uFace');
+  var uEarZ = gl.getUniformLocation(prog, 'uEarZ');
+  var uEarFlat = gl.getUniformLocation(prog, 'uEarFlat');
 
-  // 동물 = 귀 파라미터. 몸통·발·바닥은 전부 공통이다.
-  //          [좌우위치, 붙는높이, 밑동굵기, 끝굵기], [길이, 기울기, 블렌딩]
-  var ANIMALS = {
-    cat:      { a: [0.295, 0.34, 0.310, 0.128], b: [0.530, -0.06, 0.185] },
-    rabbit:   { a: [0.235, 0.34, 0.280, 0.130], b: [0.760, -0.04, 0.185] },
-    bear:     { a: [0.330, 0.41, 0.265, 0.190], b: [0.320, -0.10, 0.150] },
-    mouse:    { a: [0.360, 0.43, 0.250, 0.235], b: [0.240, -0.12, 0.140] },
-    fox:      { a: [0.305, 0.32, 0.305, 0.105], b: [0.640, -0.12, 0.175] },
-    squirrel: { a: [0.275, 0.32, 0.275, 0.150], b: [0.400, -0.06, 0.190] },
-    // 늘어진 귀: 기울기가 -1.57(수평)을 넘어가면 바깥·아래로 처진다
-    dog:      { a: [0.270, 0.58, 0.215, 0.130], b: [0.400, -1.95, 0.150] },
-    lop:      { a: [0.265, 0.57, 0.205, 0.145], b: [0.470, -2.25, 0.145] }
+  /* 동물 = 귀 치수표 (레퍼런스 Ear Dimensions, 전체 높이 H = 1 기준)
+       eh  귀 높이   — 몸체 표면에서 귀 끝까지
+       ew  귀 간격   — 두 귀 축 사이 거리
+       es  귀 돌출   — 귀 밑동 굵기(지름)
+       ea  귀 기울기 — 세로에서 바깥으로 기운 각도(도)
+     tip   단면도의 끝 모양을 밑동 대비 비율로 옮긴 값
+     drop  늘어진 귀(강아지·롭이어). 표의 eh는 머리 위로 솟은 높이라
+           늘어진 길이는 len으로 따로 준다. */
+  var EAR_SPEC = {
+    cat:      { eh: 0.28, ew: 0.60, es: 0.25, ea: 20, tip: 0.45 },  // 삼각형 곡선
+    dog:      { eh: 0.18, ew: 0.85, es: 0.26, ea: 35, tip: 0.72, drop: 1, len: 0.40, exDrop: 0.33, ezDrop: 0.52, eyDrop: 0.60 },  // 둥근 처짐
+    rabbit:   { eh: 0.45, ew: 0.35, es: 0.30, ea: 10, tip: 0.55 },  // 타원형
+    lop:      { eh: 0.30, ew: 0.70, es: 0.30, ea: 22, tip: 0.68, drop: 1, len: 0.52, exDrop: 0.30, ezDrop: 0.50, eyDrop: 0.62 },  // 긴 타원형
+    bear:     { eh: 0.22, ew: 0.70, es: 0.20, ea: 0,  tip: 0.90 },  // 반원형
+    mouse:    { eh: 0.30, ew: 0.65, es: 0.22, ea: 10, tip: 0.95 },  // 원형
+    fox:      { eh: 0.40, ew: 0.55, es: 0.28, ea: 25, tip: 0.30 },  // 날카로운 곡선
+    squirrel: { eh: 0.32, ew: 0.50, es: 0.25, ea: 15, tip: 0.50 }   // S자 곡선
   };
 
-  var dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = 560*dpr; canvas.height = 560*dpr;
-  gl.viewport(0, 0, canvas.width, canvas.height);
+  /* 레퍼런스 Color Variations */
+  var ANIMAL_COLOR = {
+    cat:      [0.965, 0.905, 0.780],
+    dog:      [0.925, 0.835, 0.690],
+    rabbit:   [0.975, 0.930, 0.905],
+    lop:      [0.960, 0.885, 0.870],
+    bear:     [0.800, 0.620, 0.440],
+    mouse:    [0.780, 0.775, 0.775],
+    fox:      [0.930, 0.720, 0.360],
+    squirrel: [0.775, 0.565, 0.385]
+  };
+
+  /* 몸체 표면의 높이. 셰이더의 몸통 식과 같은 값이어야
+     귀가 "몸체에서 eh만큼 솟은" 상태가 된다. */
+  function bodyTopAt(x, z){
+    var zz = z + 0.05;
+    var k = 1.0 - (x/0.66)*(x/0.66) - (zz/0.80)*(zz/0.80);
+    if(k <= 0.0) return 0.0;
+    return -0.22 + 0.95*Math.sqrt(k) + 0.34*z;
+  }
+
+  /* 치수표 → 셰이더가 쓰는 원뿔 파라미터 */
+  function earParams(name){
+    var S = EAR_SPEC[name] || EAR_SPEC.cat;
+    // 늘어진 귀는 몸통(반폭 0.60) 가장자리에 걸치도록 내보내야
+    // 안쪽은 묻히고 바깥쪽만 귀판으로 드러난다
+    var ex = S.drop ? S.exDrop : S.ew / 2;
+    var er1 = S.es / 2;
+    var er2 = er1 * S.tip;
+    // 늘어진 귀는 몸통 앞면 밖으로 나와야 귀판으로 보인다
+    var ez = S.drop ? S.ezDrop : 0.10;
+    var top = bodyTopAt(ex, ez);
+    var rad = S.ea * Math.PI / 180;
+    var ey, eh, tilt;
+    if(S.drop){
+      // 머리 옆 위쪽에 붙어 바깥·아래로 늘어진다
+      ey = S.eyDrop;
+      eh = Math.max(0.05, S.len - er2);
+      tilt = rad - Math.PI;          // 아래를 향하고 ea 만큼 바깥으로
+    } else {
+      // 몸체 표면에서 eh 만큼 솟는다
+      ey = top - er1 * 0.55;
+      eh = Math.max(0.05, top + S.eh - ey - er2);
+      tilt = -rad;                   // 세로에서 바깥으로 ea
+    }
+    // 블렌딩: 굵은 귀일수록 크게 뭉갠다 (레퍼런스 Tips 1·2)
+    var k = S.drop ? 0.050 : Math.min(0.20, 0.090 + er1 * 0.60);
+    return { a: [ex, ey, er1, er2], b: [eh, tilt, k], z: ez, flat: S.drop ? 0.50 : 1.0 };
+  }
 
   window.PUDDING3D = {
     paused: false, mode: 0, face: 0,
     animal: 'cat', color: [0.995, 0.912, 0.700],
-    animals: ANIMALS,
+    useAnimalColor: true, animalColors: ANIMAL_COLOR,
+    animals: EAR_SPEC, earParams: earParams,
     wobblePeriod: 2.0*Math.PI/2.2,
     draw: function(t){
-    var A = ANIMALS[window.PUDDING3D.animal] || ANIMALS.cat;
+    var A = earParams(window.PUDDING3D.animal);
+    var C = window.PUDDING3D.useAnimalColor
+      ? (ANIMAL_COLOR[window.PUDDING3D.animal] || window.PUDDING3D.color)
+      : window.PUDDING3D.color;
     gl.uniform2f(uRes, canvas.width, canvas.height);
     gl.uniform1f(uTime, t);
     gl.uniform1f(uMode, window.PUDDING3D.mode);
     gl.uniform4f(uEarA, A.a[0], A.a[1], A.a[2], A.a[3]);
     gl.uniform3f(uEarB, A.b[0], A.b[1], A.b[2]);
-    gl.uniform3f(uColor, window.PUDDING3D.color[0], window.PUDDING3D.color[1], window.PUDDING3D.color[2]);
+    gl.uniform1f(uEarZ, A.z);
+    gl.uniform1f(uEarFlat, A.flat);
+    gl.uniform3f(uColor, C[0], C[1], C[2]);
     gl.uniform1f(uFace, window.PUDDING3D.face);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.finish();
