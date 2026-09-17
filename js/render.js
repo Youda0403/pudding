@@ -36,8 +36,10 @@
     // 탱글 변형이 적용되는 부위
     ctx.save();
     applyPose(ctx, p);
+    PUDDING.drawEars(ctx, state, false);   // 몸통 뒤 귀
     PUDDING.drawBody(ctx, state);
     PUDDING.drawSyrup(ctx, state);
+    PUDDING.drawEars(ctx, state, true);    // 늘어진 귀는 몸통 앞
     PUDDING.drawEyes(ctx, state, p);
     ctx.restore();
 
