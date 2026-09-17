@@ -37,6 +37,7 @@
     ctx.save();
     applyPose(ctx, p);
     PUDDING.drawBody(ctx, state);
+    PUDDING.drawSyrup(ctx, state);
     PUDDING.drawEyes(ctx, state, p);
     ctx.restore();
 
