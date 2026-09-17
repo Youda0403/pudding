@@ -41,8 +41,11 @@ uniform float uJiggle;   // 흔들림 세기 (0 이면 정지)
      · 몸통은 구가 아니라 "틀에서 빼낸 젤리"다. 바닥이 가장 넓고 옆면이
        거의 수직이며, 위로 갈수록 중력에 눌린 돔으로 좁아진다.
      · 귀는 머리에 꽂힌 별개의 뿔이 아니라 머리에서 솟아오른 같은 덩어리다.
-       밑동은 머리 속 깊이 묻고, 블렌딩 계수를 높이에 따라 바꿔
+       밑동은 머리 속 깊이 묻고, 블렌딩 계수를 '좌우 위치'에 따라 바꿔
        "밑동은 완전히 녹아 붙고 / 두 귀 사이 골은 살아있는" 실루엣을 만든다.
+     · 몸통·귀의 치수는 레퍼런스 그림을 픽셀 단위로 재서 맞췄다. 정면과
+       측면을 같은 척도로 재면 단면 비율까지 나오므로, 눈대중으로는
+       잡히지 않는 "위로 갈수록 앞뒤가 얇아지는" 형태가 드러난다.
 
    좌표계: 접시면이 y=0, 위가 +y, 카메라 쪽이 +z.
            길이 단위는 몸통 바닥 반폭 0.66 기준 (전체 높이 ≈ 1.15).
@@ -194,23 +197,38 @@ vec3 opJiggle(vec3 p, float t, float amp, out float lip){
      · 위로 갈수록 중력에 눌린 돔으로 좁아진다 (HEAD)
    두 덩어리를 큰 k 의 3차 smin 으로 이어 '어깨'가 한 번에 넘어가게 만든다.
    정수리 = HEAD_C.y + HEAD_R3.y = 0.86.
+
+   단면은 높이마다 다르다. 레퍼런스의 정면 칸과 측면 칸을 같은 척도로 재면
+   앞뒤/좌우 비가 밑동 0.90 → 머리 위 0.72 로 줄어든다. 즉 위로 갈수록
+   좌우로만 남고 앞뒤로 얇아지는, 고양이 머리다운 단면이다.
+   이 비를 상수로 두면(어느 값을 쓰든) 밑동이나 정수리 한쪽이 틀리고,
+   특히 위가 두꺼우면 측면에서 귀와 머리가 한 덩어리 원뿔처럼 보인다.
    --------------------------------------------------------------------- */
-const float BODY_ZS  = 0.90;                        // 깊이/폭 (앞뒤로 살짝 눌림)
-const float BASE_R   = 0.660;                       // 바닥 반폭 = 가장 넓은 곳
-const float BASE_FIL = 0.220;                       // 바닥에서 어깨로 넘어가는 라운드
-const float BASE_Y   = 0.050;
-const float BASE_HH  = 0.040;
+const float BODY_ZS  = 0.90;                        // 밑동의 깊이/폭
+const float BODY_ZS_T = 0.72;                       // 머리 위의 깊이/폭
+// 거리 보정 계수. 눌린 정도가 높이에 따라 변하므로 가장 많이 눌린 값보다
+// 조금 더 보수적으로 잡는다 (기울기 항까지 감안).
+const float ZS_LIP   = 0.62;
+
+// 높이에 따른 앞뒤 눌림
+float bodyZScale(float y){
+  return mix(BODY_ZS, BODY_ZS_T, smoothstep(0.35, 0.73, y));
+}
+const float BASE_R   = 0.645;                       // 바닥 반폭 = 가장 넓은 곳
+const float BASE_FIL = 0.120;                       // 바닥에서 어깨로 넘어가는 라운드
+const float BASE_Y   = 0.045;
+const float BASE_HH  = 0.030;
 const vec3  HEAD_C   = vec3(0.0, 0.245, 0.0);
-const vec3  HEAD_R3  = vec3(0.625, 0.615, 0.625);
+const vec3  HEAD_R3  = vec3(0.675, 0.615, 0.675);
 const float BODY_TOP = 0.860;
 
 float sdBody(vec3 q){
-  vec3 s = q; s.z /= BODY_ZS;                       // 앞뒤로 눌린 단면
+  vec3 s = q; s.z /= bodyZScale(q.y);               // 높이에 따라 앞뒤로 눌린 단면
   float mold = sdRoundedCylinder(s - vec3(0.0, BASE_Y, 0.0), BASE_R*0.5, BASE_FIL, BASE_HH);
   float head = sdEllipsoid(s - HEAD_C, HEAD_R3);
   // 어깨 이음새는 3차 smin. 같은 부풀음이라도 섞이는 구간이 넓어서
   // 옆선에 '꺾인 곳'이 한 점도 남지 않는다.
-  return sminCubic(mold, head, 0.320) * BODY_ZS;
+  return sminCubic(mold, head, 0.150) * ZS_LIP;
 }
 
 /* 얼굴 좌표 (x, y) 를 머리 앞면 위로 올린다.
@@ -218,11 +236,13 @@ float sdBody(vec3 q){
    이렇게 두면 자국의 z 를 손으로 맞출 필요가 없어서
    몸통 비율을 바꿔도 얼굴이 표면에서 떠오르거나 잠기지 않는다. */
 vec3 onFace(vec2 c, float lift){
-  float t = clamp((c.y - HEAD_C.y)/HEAD_R3.y, -1.0, 1.0);
-  float r = HEAD_R3.x*sqrt(max(0.0, 1.0 - t*t));         // 그 높이의 좌우 반폭
-  float z = BODY_ZS*sqrt(max(0.0, r*r - c.x*c.x));       // 앞면까지 거리
+  // 머리 타원체 (x/rx)² + ((y-cy)/ry)² + (z/(zs·rz))² = 1 를 z 에 대해 푼 것.
+  // rx 와 rz 가 다르므로(머리는 앞뒤보다 좌우로 넓다) 둘을 따로 써야 한다.
+  float ty = (c.y - HEAD_C.y)/HEAD_R3.y;
+  float tx = c.x/HEAD_R3.x;
+  float z = bodyZScale(c.y)*HEAD_R3.z*sqrt(max(0.0, 1.0 - ty*ty - tx*tx));  // 앞면까지 거리
   float n = sqrt(max(1e-5, c.x*c.x + z*z));
-  return vec3(c.x, c.y, z) + vec3(c.x/n, 0.0, z/n)*lift; // 바깥 방향으로 띄우기
+  return vec3(c.x, c.y, z) + vec3(c.x/n, 0.0, z/n)*lift;             // 바깥 방향으로 띄우기
 }
 
 /* ---------------------------------------------------------------------
@@ -231,25 +251,38 @@ vec3 onFace(vec2 c, float lift){
    밑동점(EAR_BASE)은 머리 속에 완전히 묻고, 끝점(EAR_TIP)만 밖으로 낸다.
    sdRoundCone 은 두 구의 볼록 껍질이라 끝에 꼭짓점이 없다 — 끝 반지름
    EAR_R2 가 그대로 귀 끝의 둥근 정도가 된다.
-   앞뒤로는 EAR_FLAT 만큼 눌러 고양이 귀 특유의 납작한 삼각을 만든다.
 
-   비율은 레퍼런스의 치수표가 아니라 그림의 실루엣에서 읽었다:
-     귀 끝 높이 1.15 = 몸통 0.86 + 0.29  → 전체 높이의 약 1/4 이 귀
-     두 귀 끝 사이 0.70 ≒ 몸통 바닥 폭의 절반
-     귀 끝은 바깥으로 10°, 뒤로 6° 정도 눕는다
+   값은 눈대중이 아니라 레퍼런스(치수표가 아니라 그림)를 픽셀 단위로 재서
+   맞췄다. 고양이 정면 칸에서 귀의 바깥/안쪽 가장자리를 높이별로 읽은 뒤,
+   두 원의 볼록 껍질이 그 선을 지나도록 네 값(밑동·끝의 위치와 굵기)을
+   맞춘 것이다. 재서 얻은 귀의 모양:
+     귀 끝 높이 1.153 = 몸통 0.86 + 0.29   → 전체 높이의 약 1/4 이 귀
+     밑동 폭 0.38 (전체 높이의 1/3)        → 얇은 뿔이 아니라 통통한 삼각
+     두 귀 끝 사이 0.72,  귀 사이 골은 0.84 에서 닫힌다
+     귀 끝은 바깥으로 9°, 앞으로 12° 눕는다
    --------------------------------------------------------------------- */
-const vec3  EAR_BASE = vec3(0.285, 0.720, 0.050);
-const vec3  EAR_TIP  = vec3(0.350, 1.095, 0.010);
-const float EAR_R1   = 0.168;   // 밑동 굵기 — 머리 옆선을 그대로 이어받을 만큼 두껍게
-const float EAR_R2   = 0.058;   // 끝 굵기 — 0 이 아니어야 뾰족해지지 않는다
-const float EAR_FLAT = 0.88;    // 앞뒤로 눌린 정도
+const vec3  EAR_BASE = vec3(0.302, 0.745, 0.010);
+const vec3  EAR_TIP  = vec3(0.361, 1.108, 0.086);
+const float EAR_R1   = 0.233;   // 밑동 굵기 — 머리 옆선을 그대로 이어받을 만큼 두껍게
+const float EAR_R2   = 0.048;   // 끝 굵기 — 0 이 아니어야 뾰족해지지 않는다
+// 귀 단면의 앞뒤/좌우 비. 밑동은 살짝 납작하지만 끝으로 갈수록 앞뒤로 길어진다.
+// 레퍼런스 측면 칸을 재면 귀 끝의 좌우 폭은 0.09, 앞뒤 깊이는 0.18 — 즉 귀 끝은
+// 뾰족한 '점'이 아니라 앞뒤로 누운 둥근 '능선'이다. 이게 귀를 통통해 보이게 한다.
+const float EAR_FLAT_B = 0.90;   // 밑동
+const float EAR_FLAT_T = 1.65;   // 끝
 
 float sdEars(vec3 q){
   vec3 e = vec3(abs(q.x), q.y, q.z);      // 좌우 대칭
-  e.z /= EAR_FLAT;
-  vec3 a = vec3(EAR_BASE.x, EAR_BASE.y, EAR_BASE.z/EAR_FLAT);
-  vec3 b = vec3(EAR_TIP.x,  EAR_TIP.y,  EAR_TIP.z /EAR_FLAT);
-  return sdRoundCone(e, a, b, EAR_R1, EAR_R2) * EAR_FLAT;
+  // clamp 로 자르면 잘리는 높이에서 기울기가 꺾여 귀 밑동에 선반 같은 자국이
+  // 남는다. smoothstep 은 양 끝에서 기울기가 0 이라 그런 자국이 생기지 않는다.
+  // 시작 높이(0.70)는 머리 속이라 눈에 보이지 않는다.
+  float fz = mix(EAR_FLAT_B, EAR_FLAT_T, smoothstep(0.70, 1.15, e.y));
+  e.z /= fz;
+  vec3 a = vec3(EAR_BASE.x, EAR_BASE.y, EAR_BASE.z/EAR_FLAT_B);
+  vec3 b = vec3(EAR_TIP.x,  EAR_TIP.y,  EAR_TIP.z /EAR_FLAT_T);
+  // z 를 늘리기만 하므로 거리는 과대평가되지 않는다. 다만 늘리는 비율이
+  // 높이에 따라 변하는 만큼만 보수적으로 줄여 둔다.
+  return sdRoundCone(e, a, b, EAR_R1, EAR_R2) * 0.85;
 }
 
 /* ---------------------------------------------------------------------
@@ -309,11 +342,16 @@ vec4 puddingSpace(vec3 p){
 // 몸통 + 귀. 얼굴을 파기 전 단계라서 얼굴 자국이 '표면'을 찾을 때도 이걸 쓴다.
 float sdBodyEars(vec3 q){
   // 귀를 몸통에 녹여 붙인다.
-  // k 를 높이에 따라 바꾸는 것이 이 모델의 핵심이다.
-  //   밑동(아래) : k 가 커서 귀와 머리 사이에 경계가 아예 사라진다 → 일체형 실루엣
-  //   정수리(위) : k 가 작아 두 귀 사이의 골이 뭉개지지 않고 살아남는다
-  float k = mix(0.045, 0.130, 1.0 - smoothstep(0.52, 0.84, q.y));
-  return smin(sdBody(q), sdEars(q), k);
+  // 뭉개는 정도 k 를 '좌우 위치'에 따라 바꾸는 것이 이 모델의 핵심이다.
+  //   가운데(x≈0) : 두 귀 사이의 골이 뭉개지면 안 되므로 작게
+  //   그 바깥     : 귀 밑동이 머리에 완전히 녹아 붙도록 크게.
+  //                 여기를 작게 두면 귀 뒤쪽에 접힌 자국(crease)이 남는다.
+  // 밑동 높이에서는 한 번 더 키워 목이 생기지 않게 한다.
+  float kx = mix(0.045, 0.220, smoothstep(0.00, 0.34, abs(q.x)));
+  float k  = mix(kx, 0.220, 1.0 - smoothstep(0.50, 0.72, q.y));
+  // 2차 smin 은 이어지는 경계에서 곡률이 튀어 강한 빛 아래서 희미한 선이 보인다.
+  // 3차 smin 은 그 지점에서 곡률까지 이어져 자국이 남지 않는다.
+  return sminCubic(sdBody(q), sdEars(q), k);
 }
 
 float sdCatPudding(vec3 p){
