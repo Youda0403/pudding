@@ -11,7 +11,8 @@
       eyes: 'round',        // round | sparkle | smile | sleepy | upturned | downturned | half
       eyeColor: '#4b3423',
       mouth: 'three',       // three(ω) | caret(^) | dot(.)
-      syrup: 'caramel',     // caramel | choco | strawberry
+      syrup: 'caramel',     // caramel | choco | strawberry (고른 종류)
+      syrupColor: '#cb8b3c', // 실제로 칠하는 색. 종류를 고르면 같이 바뀐다
       syrupShape: 'drip',   // drip | pool
       text: '',
       plateColor: '#ffffff',

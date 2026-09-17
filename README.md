@@ -34,7 +34,8 @@ npx http-server -p 8099 .
 | | 올라간/내려간/반 눈은 `round`와 같은 원(r=8)을 각도만 다르게 직선으로 잘라낸 모양 |
 | 눈 색 `eyeColor` | 자유 색. 기본 목록은 `PUDDING.EYE_COLORS` |
 | 입 `mouth` | `three`(ω) `caret`(^) `dot`(.) |
-| 시럽 `syrup` | `caramel` `choco` `strawberry` |
+| 시럽 `syrup` | `caramel` `choco` `strawberry` (고른 종류) |
+| 시럽 색 `syrupColor` | 자유 색. 기본 목록은 `PUDDING.SYRUP_COLORS` (8색). 어두운 색은 여기서 파생 |
 | 시럽 모양 `syrupShape` | `drip`(길게 흘러내림) `pool`(짧고 둥글게) |
 
 깜빡일 때는 눈 종류와 상관없이 납작한 선으로 대체된다.
