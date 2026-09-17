@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>고양이 푸딩 SDF</title>
+<style>
+  html,body{margin:0;height:100%;background:#efe4d6;display:flex;align-items:center;justify-content:center;}
+  canvas{width:640px;height:640px;max-width:100vw;max-height:100vh;display:block;touch-action:none;}
+  .hint{position:fixed;left:12px;bottom:10px;margin:0;font:12px/1.5 system-ui,-apple-system,sans-serif;color:#7b6a58;}
+</style>
+</head>
+<body>
+<canvas id="c" width="640" height="640"></canvas>
+<p class="hint">드래그: 시점 · 1 완성 · 2 정면 실루엣 · 3 측면 실루엣 · Space 흔들림 정지</p>
+
+<script id="vs" type="x-shader">#version 300 es
+in vec2 aPos;
+void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }
+</script>
+
+<script id="fs" type="x-shader">#version 300 es
+precision highp float;
+out vec4 fragColor;
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform float uMode;     // 0 완성 렌더 / 1 정면 실루엣 / 2 측면 실루엣
+uniform vec3  uCam;      // 방위각, 고도, 거리
+uniform float uJiggle;   // 흔들림 세기 (0 이면 정지)
+
+/* =====================================================================
+   고양이 푸딩 (Cat Pudding) — SDF
+
+   설계 원칙
+     · 푸딩은 표면장력이 있는 반고체다. 두 덩어리가 만나는 곳에 접선이
+       꺾이는 모서리가 생길 수 없다. 그래서 덩어리를 합칠 때는 전부 smin,
+       깎아낼 때는 전부 smax(=opSmoothSub) 를 쓴다. 날것의 min()/max() 는
+       도형 하나를 정의하는 안쪽과, 서로 닿지 않는 얼굴 자국들을 모을 때만
+       나온다 (닿지 않으므로 섞일 일도 없다).
+     · 몸통은 구가 아니라 "틀에서 빼낸 젤리"다. 바닥이 가장 넓고 옆면이
+       거의 수직이며, 위로 갈수록 중력에 눌린 돔으로 좁아진다.
+     · 귀는 머리에 꽂힌 별개의 뿔이 아니라 머리에서 솟아오른 같은 덩어리다.
+       밑동은 머리 속 깊이 묻고, 블렌딩 계수를 높이에 따라 바꿔
+       "밑동은 완전히 녹아 붙고 / 두 귀 사이 골은 살아있는" 실루엣을 만든다.
+
+   좌표계: 접시면이 y=0, 위가 +y, 카메라 쪽이 +z.
+           길이 단위는 몸통 바닥 반폭 0.66 기준 (전체 높이 ≈ 1.15).
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. Smooth minimum 계열 — 말랑함의 핵심
+
+   smin(a,b,k) 는 |a-b| < k 인 구간에서만 두 거리장을 C1 연속으로 섞는다.
+   섞이는 동안 결과가 min 보다 최대 k/4 작아지는데(=표면이 그만큼 부풀어
+   오른다), 이 부풀음이 바로 물방울이 합쳐질 때 생기는 목(neck)이다.
+   --------------------------------------------------------------------- */
+
+// 2차 다항식 smooth min (iq). 기본 결합용.
+float smin(float a, float b, float k){
+  float h = clamp(0.5 + 0.5*(b - a)/k, 0.0, 1.0);
+  return mix(b, a, h) - k*h*(1.0 - h);
+}
+
+// 3차 다항식 버전. 같은 k 에서 목이 더 길고 완만해 '쫀득하게 늘어난' 이음새에 쓴다.
+float sminCubic(float a, float b, float k){
+  float h = max(k - abs(a - b), 0.0)/k;
+  return min(a, b) - h*h*h*k*(1.0/6.0);
+}
+
+// smooth maximum. 교집합/차집합에서 모서리를 없앨 때.
+float smax(float a, float b, float k){
+  float h = clamp(0.5 - 0.5*(b - a)/k, 0.0, 1.0);
+  return mix(b, a, h) + k*h*(1.0 - h);
+}
+
+// 세 연산의 이름 붙인 형태. 합집합/교집합은 smin·smax 를 그대로 쓰고,
+// 차집합만 부호가 헷갈리기 쉬워 따로 둔다: d2 에서 d1 을 파낸다.
+// 파낸 자리의 테두리도 k 만큼 둥글게 남는다.
+float opSmoothUnion(float d1, float d2, float k){ return smin(d1, d2, k); }
+float opSmoothInter(float d1, float d2, float k){ return smax(d1, d2, k); }
+float opSmoothSub  (float d1, float d2, float k){ return smax(d2, -d1, k); }
+
+/* ---------------------------------------------------------------------
+   2. 기본 도형
+   --------------------------------------------------------------------- */
+float dot2(vec3 v){ return dot(v, v); }
+mat2  rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+float sdSphere(vec3 p, float r){ return length(p) - r; }
+
+// 타원체. 정확한 거리는 아니지만 바깥에서 보수적으로 과소평가한다.
+float sdEllipsoid(vec3 p, vec3 r){
+  float k0 = length(p/r);
+  float k1 = length(p/(r*r));
+  return k0*(k0 - 1.0)/k1;
+}
+
+// 옆면이 수직이고 위·아래 테두리가 둥근 원기둥 = 푸딩 틀의 아랫부분.
+// 바깥 반지름 = 2*ra, 테두리 라운드 = rb, 직선부 반높이 = h.
+float sdRoundedCylinder(vec3 p, float ra, float rb, float h){
+  vec2 d = vec2(length(p.xz) - 2.0*ra + rb, abs(p.y) - h);
+  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - rb;
+}
+
+// 두 구 a(r1), b(r2) 의 볼록 껍질 = 끝이 완전히 둥근 원뿔 (iq).
+// 어느 방향으로도 세울 수 있어서 귀를 밑동점·끝점으로 바로 기술할 수 있다.
+// 뾰족한 꼭짓점이 아예 존재하지 않는 것이 핵심이다.
+float sdRoundCone(vec3 p, vec3 a, vec3 b, float r1, float r2){
+  vec3  ba = b - a;
+  float l2 = dot(ba, ba);
+  float rr = r1 - r2;
+  float a2 = l2 - rr*rr;
+  float il2 = 1.0/l2;
+  vec3  pa = p - a;
+  float y = dot(pa, ba);
+  float z = y - l2;
+  float x2 = dot2(pa*l2 - ba*y);
+  float y2 = y*y*l2;
+  float z2 = z*z*l2;
+  float k = sign(rr)*rr*rr*x2;
+  if(sign(z)*a2*z2 > k) return sqrt(x2 + z2)*il2 - r2;
+  if(sign(y)*a2*y2 < k) return sqrt(x2 + y2)*il2 - r1;
+  return (sqrt(x2*a2*il2) + y*rr)*il2 - r1;
+}
+
+// 끝이 둥근 선분 (얼굴 자국의 한 획). 정면에서 본 2D 모양이라 xy 평면에서 쓴다.
+float sdCapsule2(vec2 p, vec2 a, vec2 b, float r){
+  vec2 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba)/dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba*h) - r;
+}
+
+// 2D 원호 = 휘어진 캡슐. -y 방향이 각 0 이고 ±half 만큼만 남는다.
+// 각을 clamp 하기만 하면 되므로 끝이 저절로 둥글고 거리도 정확하다.
+// (짧은 캡슐을 여러 개 이어 붙이면 꺾인 이음매마다 혹이 생긴다. 입은 한 획이어야 한다.)
+float sdArc2(vec2 p, float ra, float rb, float half_){
+  float a = clamp(atan(p.x, -p.y), -half_, half_);
+  return length(p - vec2(ra*sin(a), -ra*cos(a))) - rb;
+}
+
+// 2D 하트 — 봉우리 두 개와 아래로 좁아지는 몸통을 전부 smin 으로 이어 붙인다.
+// s 는 전체 크기. 뾰족한 꼭짓점 없이 도톰한 하트가 된다.
+float sdHeart2(vec2 p, float s){
+  p /= s;
+  float d = smin(length(p - vec2(-0.42, 0.28)) - 0.46,
+                 length(p - vec2( 0.42, 0.28)) - 0.46, 0.16);
+  d = smin(d, length(p - vec2(0.0, -0.12)) - 0.44, 0.22);
+  d = smin(d, length(p - vec2(0.0, -0.56)) - 0.28, 0.22);
+  d = smin(d, length(p - vec2(0.0, -0.88)) - 0.10, 0.22);
+  return d*s;
+}
+
+float sdDisc(vec3 p, float r, float h){
+  vec2 d = vec2(length(p.xz) - r, abs(p.y) - h);
+  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
+}
+
+/* ---------------------------------------------------------------------
+   3. 공간 왜곡 (domain distortion)
+
+   왜곡은 공간을 늘리거나 조이므로 거리장의 기울기(Lipschitz 상수)가
+   1을 넘게 된다. 그대로 두면 레이마칭이 표면을 뚫고 지나가 표면에
+   구멍·얼룩이 생긴다. 그래서 두 함수 모두 "거리에 곱해 줄 보정 계수"를
+   같이 돌려준다.
+   --------------------------------------------------------------------- */
+
+// (a) 중력 처짐 — 위로 갈수록 xz 를 s(≥1)배 조인다.
+//     결과적으로 형태는 아래가 퍼지고 위가 좁아진 실루엣이 된다.
+//     공간을 s 배 확대했으므로 거리는 1/s 로 줄여야 보수적이다.
+vec4 opSag(vec3 p, float k, float h){
+  float t = clamp(p.y/h, 0.0, 1.0);
+  float s = 1.0 + k*t*t;              // 바닥 1.0 → 정수리 1+k
+  return vec4(p.x*s, p.y, p.z*s, s);
+}
+
+// (b) 탱글 흔들림 — 높이의 제곱에 비례하는 전단(윗부분이 더 크게 기운다)
+//     + 아주 약한 위아래 숨쉬기. 젤리가 관성으로 출렁이는 모양이다.
+vec3 opJiggle(vec3 p, float t, float amp, out float lip){
+  float w  = amp*sin(t*2.4);
+  float br = 1.0 + amp*0.45*sin(t*2.4 + 1.9);
+  p.x -= w*p.y*p.y*1.70;
+  p.z -= w*p.y*p.y*0.55;
+  p.y /= br;
+  lip  = 1.0/(1.0 + amp*4.2);         // 전단으로 늘어난 기울기 보정
+  return p;
+}
+
+/* ---------------------------------------------------------------------
+   4. 몸통
+
+   구가 아니다. 틀에서 빼낸 푸딩은
+     · 바닥이 가장 넓고 옆면이 거의 수직이며 (BASE)
+     · 위로 갈수록 중력에 눌린 돔으로 좁아진다 (HEAD)
+   두 덩어리를 큰 k 의 3차 smin 으로 이어 '어깨'가 한 번에 넘어가게 만든다.
+   정수리 = HEAD_C.y + HEAD_R3.y = 0.86.
+   --------------------------------------------------------------------- */
+const float BODY_ZS  = 0.90;                        // 깊이/폭 (앞뒤로 살짝 눌림)
+const float BASE_R   = 0.660;                       // 바닥 반폭 = 가장 넓은 곳
+const float BASE_FIL = 0.220;                       // 바닥에서 어깨로 넘어가는 라운드
+const float BASE_Y   = 0.050;
+const float BASE_HH  = 0.040;
+const vec3  HEAD_C   = vec3(0.0, 0.245, 0.0);
+const vec3  HEAD_R3  = vec3(0.625, 0.615, 0.625);
+const float BODY_TOP = 0.860;
+
+float sdBody(vec3 q){
+  vec3 s = q; s.z /= BODY_ZS;                       // 앞뒤로 눌린 단면
+  float mold = sdRoundedCylinder(s - vec3(0.0, BASE_Y, 0.0), BASE_R*0.5, BASE_FIL, BASE_HH);
+  float head = sdEllipsoid(s - HEAD_C, HEAD_R3);
+  // 어깨 이음새는 3차 smin. 같은 부풀음이라도 섞이는 구간이 넓어서
+  // 옆선에 '꺾인 곳'이 한 점도 남지 않는다.
+  return sminCubic(mold, head, 0.320) * BODY_ZS;
+}
+
+/* 얼굴 좌표 (x, y) 를 머리 앞면 위로 올린다.
+   lift 만큼 바깥으로 띄우면 그만큼 얕게 파인다.
+   이렇게 두면 자국의 z 를 손으로 맞출 필요가 없어서
+   몸통 비율을 바꿔도 얼굴이 표면에서 떠오르거나 잠기지 않는다. */
+vec3 onFace(vec2 c, float lift){
+  float t = clamp((c.y - HEAD_C.y)/HEAD_R3.y, -1.0, 1.0);
+  float r = HEAD_R3.x*sqrt(max(0.0, 1.0 - t*t));         // 그 높이의 좌우 반폭
+  float z = BODY_ZS*sqrt(max(0.0, r*r - c.x*c.x));       // 앞면까지 거리
+  float n = sqrt(max(1e-5, c.x*c.x + z*z));
+  return vec3(c.x, c.y, z) + vec3(c.x/n, 0.0, z/n)*lift; // 바깥 방향으로 띄우기
+}
+
+/* ---------------------------------------------------------------------
+   5. 귀
+
+   밑동점(EAR_BASE)은 머리 속에 완전히 묻고, 끝점(EAR_TIP)만 밖으로 낸다.
+   sdRoundCone 은 두 구의 볼록 껍질이라 끝에 꼭짓점이 없다 — 끝 반지름
+   EAR_R2 가 그대로 귀 끝의 둥근 정도가 된다.
+   앞뒤로는 EAR_FLAT 만큼 눌러 고양이 귀 특유의 납작한 삼각을 만든다.
+
+   비율은 레퍼런스의 치수표가 아니라 그림의 실루엣에서 읽었다:
+     귀 끝 높이 1.15 = 몸통 0.86 + 0.29  → 전체 높이의 약 1/4 이 귀
+     두 귀 끝 사이 0.70 ≒ 몸통 바닥 폭의 절반
+     귀 끝은 바깥으로 10°, 뒤로 6° 정도 눕는다
+   --------------------------------------------------------------------- */
+const vec3  EAR_BASE = vec3(0.285, 0.720, 0.050);
+const vec3  EAR_TIP  = vec3(0.350, 1.095, 0.010);
+const float EAR_R1   = 0.168;   // 밑동 굵기 — 머리 옆선을 그대로 이어받을 만큼 두껍게
+const float EAR_R2   = 0.058;   // 끝 굵기 — 0 이 아니어야 뾰족해지지 않는다
+const float EAR_FLAT = 0.88;    // 앞뒤로 눌린 정도
+
+float sdEars(vec3 q){
+  vec3 e = vec3(abs(q.x), q.y, q.z);      // 좌우 대칭
+  e.z /= EAR_FLAT;
+  vec3 a = vec3(EAR_BASE.x, EAR_BASE.y, EAR_BASE.z/EAR_FLAT);
+  vec3 b = vec3(EAR_TIP.x,  EAR_TIP.y,  EAR_TIP.z /EAR_FLAT);
+  return sdRoundCone(e, a, b, EAR_R1, EAR_R2) * EAR_FLAT;
+}
+
+/* ---------------------------------------------------------------------
+   6. 얼굴 자국
+
+   눈은 표면에 살짝 얹은 작은 구로 파낸 보조개다.
+   입·수염·하트는 방식이 다르다. 곡면 위에 3D 캡슐을 얹어 파면 볼이 휜
+   만큼 획의 가운데가 얕아져 자국이 끊긴다. 그래서 "정면에서 본 2D 모양"을
+   z 축 방향 기둥으로 밀어낸 뒤, 표면에서 INK_DEPTH 이내인 껍질과 교집합해
+   새긴다. 면이 어디로 휘든 깊이가 일정하고, 정면 모양은 레퍼런스 그대로다.
+   --------------------------------------------------------------------- */
+const float INK_DEPTH = 0.020;
+
+// 정면에서 본 얼굴 자국
+float faceMark2D(vec2 c){
+  vec2 m = vec2(abs(c.x), c.y);            // 좌우 대칭
+
+  // 입 ω — 아래로 열린 원호 하나(반각 105°).
+  // 대칭 좌표에서 그리므로 반대쪽 반원이 저절로 생겨 ω 가 된다.
+  float d = sdArc2(m - vec2(0.034, 0.408), 0.032, 0.011, 1.83);
+
+  // 수염 세 갈래
+  d = min(d, sdCapsule2(m, vec2(0.245, 0.436), vec2(0.425, 0.462), 0.012));
+  d = min(d, sdCapsule2(m, vec2(0.250, 0.388), vec2(0.432, 0.392), 0.012));
+  d = min(d, sdCapsule2(m, vec2(0.245, 0.340), vec2(0.422, 0.322), 0.012));
+
+  // 오른쪽 이마의 하트. 좌우 대칭이 아니므로 원래 x 를 쓴다.
+  d = min(d, sdHeart2(rot(-0.22)*(c - vec2(0.316, 0.598)), 0.060));
+  return d;
+}
+
+// 눈 — 표면에서 0.026 띄운 구. 파이는 깊이가 0.032 인 동그란 보조개가 된다.
+float sdEyes(vec3 q){
+  return sdSphere(vec3(abs(q.x), q.y, q.z) - onFace(vec2(0.180, 0.500), 0.026), 0.058);
+}
+
+/* 파낼 영역. body 는 자국을 파기 전의 몸통 거리장이다.
+     prism : 정면 2D 모양을 z 로 밀어낸 기둥
+     shell : 표면에서 INK_DEPTH 이내 (여기서 깊이가 일정해진다)
+             + 앞면만 (z 로 자르지 않으면 뒤통수에도 같은 자국이 찍힌다)
+   교집합도 smax 로 해야 자국 바닥과 벽이 만나는 곳까지 둥글게 남는다. */
+float faceInk(vec3 q, float body){
+  float shell = smax(-(body + INK_DEPTH), 0.10 - q.z, 0.010);
+  return min(sdEyes(q), smax(faceMark2D(q.xy), shell, 0.008));
+}
+
+/* ---------------------------------------------------------------------
+   7. 고양이 푸딩 전체
+   --------------------------------------------------------------------- */
+vec4 puddingSpace(vec3 p){
+  float lip;
+  vec3 q  = opJiggle(p, uTime, 0.028*uJiggle, lip);
+  vec4 sg = opSag(q, 0.060, BODY_TOP);
+  return vec4(sg.xyz, lip/sg.w);            // xyz = 왜곡된 좌표, w = 거리 보정
+}
+
+// 몸통 + 귀. 얼굴을 파기 전 단계라서 얼굴 자국이 '표면'을 찾을 때도 이걸 쓴다.
+float sdBodyEars(vec3 q){
+  // 귀를 몸통에 녹여 붙인다.
+  // k 를 높이에 따라 바꾸는 것이 이 모델의 핵심이다.
+  //   밑동(아래) : k 가 커서 귀와 머리 사이에 경계가 아예 사라진다 → 일체형 실루엣
+  //   정수리(위) : k 가 작아 두 귀 사이의 골이 뭉개지지 않고 살아남는다
+  float k = mix(0.045, 0.130, 1.0 - smoothstep(0.52, 0.84, q.y));
+  return smin(sdBody(q), sdEars(q), k);
+}
+
+float sdCatPudding(vec3 p){
+  vec4 sp = puddingSpace(p);
+  vec3 q  = sp.xyz;
+
+  float d = sdBodyEars(q);
+
+  // 얼굴을 미세하게 파낸다 (모서리 없이).
+  d = opSmoothSub(faceInk(q, d), d, 0.012);
+
+  d *= sp.w;                                 // 왜곡 보정
+
+  // 접시에 눌려 평평하게 잘린 바닥.
+  // 평면과의 교집합도 smax 로 해야 밑동 테두리가 칼처럼 서지 않고
+  // 살짝 퍼진 채로 접시에 닿는다.
+  d = smax(d, -p.y + 0.003, 0.030);
+  return d;
+}
+
+/* ---------------------------------------------------------------------
+   8. 장면 — x: 거리, y: 재질(0 푸딩, 1 접시)
+   --------------------------------------------------------------------- */
+vec2 map(vec3 p){
+  vec2 res = vec2(sdCatPudding(p), 0.0);
+  if(uMode > 0.5) return res;                 // 실루엣 검증 모드는 푸딩만
+
+  // 접시. 원기둥을 0.006 만큼 부풀려(=거리에서 빼서) 테두리를 둥글린다.
+  float plate = smin(sdDisc(p - vec3(0.0, -0.012, 0.0), 1.294, 0.010) - 0.006,
+                     sdDisc(p - vec3(0.0, -0.040, 0.0), 1.154, 0.014) - 0.006, 0.03);
+  if(plate < res.x) res = vec2(plate, 1.0);
+  return res;
+}
+
+vec3 calcNormal(vec3 p){
+  vec2 e = vec2(1.0, -1.0)*0.0011;
+  return normalize(
+    e.xyy*map(p + e.xyy).x + e.yyx*map(p + e.yyx).x +
+    e.yxy*map(p + e.yxy).x + e.xxx*map(p + e.xxx).x);
+}
+
+vec2 rayMarch(vec3 ro, vec3 rd){
+  float t = 0.0, m = -1.0;
+  for(int i = 0; i < 192; i++){
+    vec2 h = map(ro + rd*t);
+    if(abs(h.x) < 0.0005*t + 0.00035){ m = h.y; break; }
+    t += h.x*0.76;                            // 왜곡이 있으므로 보수적으로
+    if(t > 12.0) break;
+  }
+  if(t > 12.0) m = -1.0;
+  return vec2(t, m);
+}
+
+float softShadow(vec3 ro, vec3 rd, float k){
+  float res = 1.0, t = 0.03;
+  for(int i = 0; i < 48; i++){
+    float h = map(ro + rd*t).x;
+    res = min(res, k*h/t);
+    t += clamp(h, 0.012, 0.16);
+    if(res < 0.02 || t > 3.2) break;
+  }
+  return clamp(res, 0.0, 1.0);
+}
+
+float calcAO(vec3 p, vec3 n){
+  float occ = 0.0, sca = 1.0;
+  for(int i = 0; i < 5; i++){
+    float h = 0.012 + 0.11*float(i)/4.0;
+    occ += (h - map(p + n*h).x)*sca;
+    sca *= 0.82;
+  }
+  return clamp(1.0 - 1.6*occ, 0.0, 1.0);
+}
+
+// 얇은 곳일수록 빛이 통과해 보이는 느낌 (가짜 SSS). 푸딩의 반투명함.
+float translucency(vec3 p, vec3 n){
+  float t = 0.0;
+  for(int i = 1; i <= 5; i++){
+    float h = 0.055*float(i);
+    t += max(0.0, h + sdCatPudding(p - n*h))/h;
+  }
+  return clamp(t/5.0, 0.0, 1.0);
+}
+
+vec3 skyColor(vec3 d){
+  float t = clamp(d.y*0.5 + 0.5, 0.0, 1.0);
+  return mix(vec3(0.52, 0.44, 0.36), vec3(1.00, 0.98, 0.94), t);
+}
+
+vec3 background(vec2 uv){
+  vec3 col = mix(vec3(0.836, 0.760, 0.676), vec3(0.960, 0.918, 0.856),
+                 smoothstep(-0.6, 0.8, uv.y));
+  return col*(1.0 - 0.15*dot(uv, uv));
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy*2.0 - uRes)/uRes.y;
+
+  // 카메라
+  float az = uCam.x, el = uCam.y, dist = uCam.z;
+  vec3 ta = vec3(0.0, 0.47, 0.0);
+  vec3 ro = ta + dist*vec3(cos(el)*sin(az), sin(el), cos(el)*cos(az));
+  float zoom = 2.2;
+  if(uMode > 0.5){ ta = vec3(0.0, 0.56, 0.0); ro = ta + vec3(0.0, 0.0, 5.0); }
+  if(uMode > 1.5){ ro = ta + vec3(5.0, 0.0, 0.0); }
+
+  vec3 ww = normalize(ta - ro);
+  vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));
+  vec3 vv = cross(uu, ww);
+  vec3 rd = normalize(uv.x*uu + uv.y*vv + zoom*ww);
+
+  // 실루엣 검증은 직교 투영으로 본다 (원근이면 앞쪽이 부풀어 비교가 안 된다)
+  if(uMode > 0.5){
+    ro = ro + uu*(uv.x*1.15) + vv*(uv.y*1.15);
+    rd = ww;
+  }
+
+  vec2 hit = rayMarch(ro, rd);
+
+  if(uMode > 0.5){
+    fragColor = vec4(vec3(hit.y >= 0.0 ? 0.10 : 1.0), 1.0);
+    return;
+  }
+
+  vec3 col = background(uv);
+  bool isBg = true;
+
+  if(hit.y >= 0.0){
+    isBg = false;
+    vec3 p = ro + rd*hit.x;
+    vec3 n = calcNormal(p);
+
+    vec3 lig  = normalize(vec3(-0.40, 1.18, 0.42));   // 키 라이트 (왼쪽 위 앞)
+    vec3 lig2 = normalize(vec3(0.75, 0.30, -0.50));   // 뒤쪽 채움
+    float dif = clamp(dot(n, lig), 0.0, 1.0);
+    float sha = softShadow(p + n*0.012, lig, 12.0);
+    float ao  = calcAO(p, n);
+    float bac = clamp(dot(n, lig2), 0.0, 1.0);
+    float fre = pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 5.0);
+    vec3  env = skyColor(reflect(rd, n));
+
+    vec3  hal  = normalize(lig - rd);
+    float spe  = pow(clamp(dot(n, hal), 0.0, 1.0), 520.0);
+    float spe2 = pow(clamp(dot(n, hal), 0.0, 1.0), 28.0);
+
+    vec3 base; float gloss, envAmt;
+
+    if(hit.y < 0.5){
+      // 커스터드. 지정 색은 sRGB 라서 선형으로 바꿔 조명에 넣는다.
+      base = pow(vec3(0.965, 0.905, 0.780), vec3(2.2));
+      base += base*vec3(0.55, 0.34, 0.10)*translucency(p, n)*0.95;
+
+      // 파낸 얼굴 자국에 색을 얹는다. 형태를 만든 것과 같은 거리장을 쓰므로
+      // 색과 굴곡이 정확히 같은 자리에 온다.
+      vec3  q    = puddingSpace(p).xyz;
+      float ink  = faceInk(q, sdBodyEars(q));
+      float mask = 1.0 - smoothstep(0.0, 0.012, ink);
+      base = mix(base, vec3(0.135, 0.085, 0.060), mask);
+      gloss = 1.0 - mask*0.55;
+      envAmt = 0.16;
+    } else {
+      base = vec3(0.955, 0.945, 0.935);                // 흰 도자기
+      gloss = 0.55; envAmt = 0.10;
+    }
+
+    vec3 lin = vec3(0.0);
+    lin += base*dif*sha*vec3(1.06, 1.00, 0.92)*1.15;
+    lin += base*bac*0.20*vec3(1.00, 0.95, 0.92);
+    lin += base*ao*skyColor(n)*0.34;
+    lin += base*fre*0.14;
+
+    col  = lin;
+    col  = mix(col, env, fre*envAmt);
+    col += spe *sha*0.72*gloss;
+    col += spe2*sha*0.07*gloss;
+  }
+
+  if(!isBg){
+    col = col/(col + 1.0)*1.62;
+    col = pow(clamp(col, 0.0, 1.0), vec3(0.4545));
+  }
+  fragColor = vec4(col, 1.0);
+}
+</script>
+
+<script>
+(function(){
+  var canvas = document.getElementById('c');
+  var gl = canvas.getContext('webgl2', { antialias: true, preserveDrawingBuffer: true });
+  if(!gl){ document.body.textContent = 'WebGL2를 쓸 수 없습니다.'; return; }
+
+  function compile(type, src){
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src.trim());
+    gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  var prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, document.getElementById('vs').textContent));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, document.getElementById('fs').textContent));
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+
+  var buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  var loc = gl.getAttribLocation(prog, 'aPos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  var U = {
+    res: gl.getUniformLocation(prog, 'uRes'),
+    time: gl.getUniformLocation(prog, 'uTime'),
+    mode: gl.getUniformLocation(prog, 'uMode'),
+    cam: gl.getUniformLocation(prog, 'uCam'),
+    jiggle: gl.getUniformLocation(prog, 'uJiggle')
+  };
+
+  var CAT = window.CAT3D = {
+    mode: 0, jiggle: 1,
+    az: 0.40, el: 0.30, dist: 2.75,
+    draw: function(t){
+      gl.uniform2f(U.res, canvas.width, canvas.height);
+      gl.uniform1f(U.time, t);
+      gl.uniform1f(U.mode, CAT.mode);
+      gl.uniform3f(U.cam, CAT.az, CAT.el, CAT.dist);
+      gl.uniform1f(U.jiggle, CAT.jiggle);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.finish();
+    }
+  };
+
+  var drag = null;
+  canvas.addEventListener('pointerdown', function(e){ drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointerup', function(){ drag = null; });
+  canvas.addEventListener('pointermove', function(e){
+    if(!drag) return;
+    CAT.az -= (e.clientX - drag.x)*0.006;
+    CAT.el = Math.max(-0.35, Math.min(1.15, CAT.el + (e.clientY - drag.y)*0.005));
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  window.addEventListener('keydown', function(e){
+    if(e.key === '1') CAT.mode = 0;
+    if(e.key === '2') CAT.mode = 1;
+    if(e.key === '3') CAT.mode = 2;
+    if(e.key === ' '){ CAT.jiggle = CAT.jiggle > 0 ? 0 : 1; e.preventDefault(); }
+  });
+
+  var start = performance.now();
+  (function frame(){
+    CAT.draw((performance.now() - start)/1000);
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body>
+</html>
