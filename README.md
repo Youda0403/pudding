@@ -31,6 +31,7 @@ npx http-server -p 8099 .
 | 부위 | 값 |
 | --- | --- |
 | 눈 `eyes` | `round` `sparkle` `smile` `sleepy` `upturned`(올라간) `downturned`(내려간) `half`(반 눈) |
+| | 올라간/내려간/반 눈은 참고 이미지 픽셀에서 타원 파라미터를 역산해 맞춤. 단색이라 반사점 없음 |
 | 눈 색 `eyeColor` | 자유 색. 기본 목록은 `PUDDING.EYE_COLORS` |
 | 입 `mouth` | `three`(ω) `caret`(^) `dot`(.) |
 

@@ -53,58 +53,36 @@
     ctx.stroke();
   }
 
-  /* 양 끝이 뾰족한 아몬드 눈.
+  /* 기울어진 둥근 눈.
      tilt > 0 이면 바깥쪽 끝이 올라가고, < 0 이면 내려간다.
-     side: -1 왼쪽 눈, 1 오른쪽 눈 */
-  function almondEye(ctx, x, y, side, tilt, color) {
-    var a = 10;      // 가로 반폭
-    var top = 16;    // 위쪽 곡선 제어점 (실제 높이는 절반)
-    var bottom = 11; // 아래쪽 곡선 제어점
-
+     side: -1 왼쪽 눈, 1 오른쪽 눈
+     (ctx.rotate는 화면 기준 시계방향이라 왼쪽 눈은 +tilt, 오른쪽 눈은 -tilt) */
+  function tiltedEye(ctx, x, y, side, tilt, rx, ry, color) {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(-side * tilt);
-
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.moveTo(-a, 0);
-    ctx.quadraticCurveTo(0, -top, a, 0);
-    ctx.quadraticCurveTo(0, bottom, -a, 0);
-    ctx.closePath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, TAU);
     ctx.fill();
     ctx.restore();
-
-    // 반사점은 기울기와 상관없이 항상 왼쪽 위 (다른 눈들과 빛 방향을 맞춘다)
-    ctx.fillStyle = GLINT;
-    ctx.beginPath();
-    ctx.arc(x - 2.6, y - 2.4, 2.6, 0, TAU);
-    ctx.fill();
   }
 
-  /* 반쯤 감은 눈: 위 눈꺼풀 선 + 그 아래로 보이는 눈동자 */
+  /* 반 눈: 둥근 눈의 위쪽을 수평으로 잘라낸 모양 */
   function halfEye(ctx, x, y, color) {
-    var lidY = y - 1.8;
+    var rx = 8.3;
+    var ry = 7.8;
+    var cut = y - ry * 0.61; // 잘리는 높이
 
-    // 눈꺼풀 아래로 보이는 눈동자
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x - rx - 1, cut, rx * 2 + 2, ry + 3);
+    ctx.clip();
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.ellipse(x, lidY, 6.2, 5.6, 0, 0, Math.PI);
-    ctx.closePath();
+    ctx.ellipse(x, y, rx, ry, 0, 0, TAU);
     ctx.fill();
-
-    // 위 눈꺼풀 선 (눈동자보다 조금 넓게)
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2.8;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x - 8.2, lidY - 0.2);
-    ctx.quadraticCurveTo(x, lidY - 3.2, x + 8.2, lidY - 0.2);
-    ctx.stroke();
-
-    ctx.fillStyle = GLINT;
-    ctx.beginPath();
-    ctx.arc(x - 2.2, lidY + 1.8, 1.7, 0, TAU);
-    ctx.fill();
+    ctx.restore();
   }
 
   /* 눈 종류. (ctx, x, y, side, color) */
@@ -122,10 +100,10 @@
       curveEye(ctx, x, y, 6.4, 4.2, false, c);
     },
     upturned: function (ctx, x, y, side, c) {   // 올라간 눈
-      almondEye(ctx, x, y, side, 0.42, c);
+      tiltedEye(ctx, x, y, side, 0.30, 8.15, 6.85, c);
     },
     downturned: function (ctx, x, y, side, c) { // 내려간 눈
-      almondEye(ctx, x, y, side, -0.38, c);
+      tiltedEye(ctx, x, y, side, -0.40, 8.15, 7.3, c);
     },
     half: function (ctx, x, y, side, c) {       // 반 눈
       halfEye(ctx, x, y, c);
