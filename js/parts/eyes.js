@@ -10,6 +10,7 @@
   var INK = '#4b3423';        // 입 색 (눈 색과 별개)
   var BLUSH = 'rgba(240, 143, 146, 0.45)';
   var GLINT = '#ffffff';
+  var EYE_R = 8;              // 기본 눈 반지름 (round 눈과 같은 크기)
 
   // 눈 색 고르기용 기본 목록
   var EYE_COLORS = [
@@ -53,42 +54,47 @@
     ctx.stroke();
   }
 
-  /* 기울어진 둥근 눈.
-     tilt > 0 이면 바깥쪽 끝이 올라가고, < 0 이면 내려간다.
-     side: -1 왼쪽 눈, 1 오른쪽 눈
-     (ctx.rotate는 화면 기준 시계방향이라 왼쪽 눈은 +tilt, 오른쪽 눈은 -tilt) */
-  function tiltedEye(ctx, x, y, side, tilt, rx, ry, color) {
+  /* 둥근 눈을 직선으로 잘라낸 모양.
+     cutAngle: 자르는 선의 기울기 (왼쪽 눈 기준, 오른쪽 눈은 좌우 대칭)
+     cutRatio: 중심에서 자르는 선까지의 거리 (반지름 대비)
+     잘린 모서리는 같은 색으로 한 번 더 그어(lineJoin: round) 살짝 둥글린다. */
+  function cutEye(ctx, x, y, side, cutAngle, cutRatio, color, glint) {
+    var round = 1.5;                       // 모서리 둥글기
+    var r = EYE_R - round;                 // 선 두께의 절반만큼 미리 줄여 그린다
+    var d = EYE_R * cutRatio - round;
+
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(-side * tilt);
-    ctx.fillStyle = color;
+    ctx.rotate(-side * cutAngle);
+
     ctx.beginPath();
-    ctx.ellipse(0, 0, rx, ry, 0, 0, TAU);
+    if (d >= r) {
+      ctx.arc(0, 0, r, 0, TAU);
+    } else {
+      var h = Math.sqrt(r * r - d * d);    // 잘린 면의 반쪽 길이
+      var a = Math.atan2(d, h);
+      ctx.arc(0, 0, r, -a, Math.PI + a, false);
+      ctx.closePath();
+    }
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = round * 2;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
     ctx.fill();
     ctx.restore();
-  }
 
-  /* 반 눈: 둥근 눈의 위쪽을 수평으로 잘라낸 모양 */
-  function halfEye(ctx, x, y, color) {
-    var rx = 8.3;
-    var ry = 7.8;
-    var cut = y - ry * 0.61; // 잘리는 높이
-
-    ctx.save();
+    // 반사점은 기울기와 상관없이 항상 왼쪽 위 (다른 눈들과 빛 방향을 맞춘다)
+    ctx.fillStyle = GLINT;
     ctx.beginPath();
-    ctx.rect(x - rx - 1, cut, rx * 2 + 2, ry + 3);
-    ctx.clip();
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.ellipse(x, y, rx, ry, 0, 0, TAU);
+    ctx.arc(x + glint[0] * EYE_R, y + glint[1] * EYE_R, glint[2] * EYE_R, 0, TAU);
     ctx.fill();
-    ctx.restore();
   }
 
   /* 눈 종류. (ctx, x, y, side, color) */
   var EYE_STYLES = {
     round: function (ctx, x, y, side, c) {
-      pupil(ctx, x, y, 8, c, [[-0.32, -0.34, 0.3]]);
+      pupil(ctx, x, y, EYE_R, c, [[-0.32, -0.34, 0.3]]);
     },
     sparkle: function (ctx, x, y, side, c) {
       pupil(ctx, x, y, 9.2, c, [[-0.33, -0.33, 0.34], [0.28, 0.32, 0.18]]);
@@ -99,14 +105,14 @@
     sleepy: function (ctx, x, y, side, c) {
       curveEye(ctx, x, y, 6.4, 4.2, false, c);
     },
-    upturned: function (ctx, x, y, side, c) {   // 올라간 눈
-      tiltedEye(ctx, x, y, side, 0.30, 8.15, 6.85, c);
+    upturned: function (ctx, x, y, side, c) {   // 올라간 눈: 안쪽 위를 비스듬히 자름
+      cutEye(ctx, x, y, side, 0.28, 0.712, c, [-0.30, -0.26, 0.26]);
     },
-    downturned: function (ctx, x, y, side, c) { // 내려간 눈
-      tiltedEye(ctx, x, y, side, -0.40, 8.15, 7.3, c);
+    downturned: function (ctx, x, y, side, c) { // 내려간 눈: 바깥쪽 위를 비스듬히 자름
+      cutEye(ctx, x, y, side, -0.38, 0.765, c, [-0.30, -0.26, 0.26]);
     },
-    half: function (ctx, x, y, side, c) {       // 반 눈
-      halfEye(ctx, x, y, c);
+    half: function (ctx, x, y, side, c) {       // 반 눈: 위를 수평으로 자름
+      cutEye(ctx, x, y, side, 0, 0.5, c, [-0.30, -0.12, 0.23]);
     }
   };
 
