@@ -335,31 +335,31 @@ float earBlend(){
    t0,t1 은 축 위에서 홈이 시작·끝나는 지점이다.
      t0  머리 밖으로 귀가 나오는 높이보다 위 — 더 내려가면 머리를 판다
      t1  1 보다 작게 — 귀 끝은 꽉 차 있어야 뭉툭해 보인다 */
-void earInner(out float si, out float dep, out float t0, out float t1, out float kin){
+void earInner(out float si, out float dep, out float t0, out float t1, out float kin, out float ybot){
   if(uAnimal < 0.5){        // 고양이
-    si=0.92; dep=0.34; t0=0.745; t1=0.945; kin=0.018;
+    si=0.92; dep=0.34; t0=0.745; t1=0.945; kin=0.018; ybot= 0.828;
   } else if(uAnimal < 1.5){ // 강아지
-    si=0.90; dep=0.40; t0=0.270; t1=0.880; kin=0.026;
+    si=0.90; dep=0.40; t0=0.270; t1=0.880; kin=0.026; ybot=-1.000;
   } else if(uAnimal < 2.5){ // 토끼
-    si=0.90; dep=0.62; t0=0.340; t1=0.945; kin=0.014;
+    si=0.90; dep=0.62; t0=0.340; t1=0.945; kin=0.014; ybot=-1.000;
   } else if(uAnimal < 3.5){ // 롭이어
-    si=0.90; dep=0.40; t0=0.240; t1=0.870; kin=0.026;
+    si=0.90; dep=0.40; t0=0.240; t1=0.870; kin=0.026; ybot=-1.000;
   } else if(uAnimal < 4.5){ // 곰
-    si=0.76; dep=0.40; t0=0.000; t1=1.000; kin=0.022;
+    si=0.76; dep=0.40; t0=0.000; t1=1.000; kin=0.022; ybot=-1.000;
   } else if(uAnimal < 5.5){ // 쥐
-    si=0.82; dep=0.46; t0=0.000; t1=1.000; kin=0.022;
+    si=0.82; dep=0.46; t0=0.000; t1=1.000; kin=0.022; ybot=-1.000;
   } else if(uAnimal < 6.5){ // 여우
-    si=0.92; dep=0.36; t0=0.760; t1=0.945; kin=0.018;
+    si=0.92; dep=0.36; t0=0.760; t1=0.945; kin=0.018; ybot= 0.828;
   } else {                  // 햄스터
-    si=0.64; dep=0.30; t0=0.000; t1=1.000; kin=0.018;
+    si=0.64; dep=0.30; t0=0.000; t1=1.000; kin=0.018; ybot=-1.000;
   }
 }
 
 float sdEarInner(vec3 q){
   vec3 a,b; float r1,r2,fz,k;
   earSpec(a,r1,b,r2,fz,k);
-  float si,dep,t0,t1,kin;
-  earInner(si,dep,t0,t1,kin);
+  float si,dep,t0,t1,kin,ybot;
+  earInner(si,dep,t0,t1,kin,ybot);
 
   vec3 e = vec3(abs(q.x), q.y, q.z);
   e.z /= fz;  a.z /= fz;  b.z /= fz;
@@ -368,11 +368,14 @@ float sdEarInner(vec3 q){
   float zin = si + 1.0 - dep;                 // 앞으로 밀 거리 (반지름 대비)
   vec3  ia = mix(a, b, t0);  ia.z += zin*ra;
   vec3  ib = mix(a, b, t1);  ib.z += zin*rb;
-  return sdRoundCone(e, ia, ib, si*ra, si*rb);
+  // 홈의 아래 끝을 ybot 에서 자른다. 안 자르면 밑동 구의 둥근 뚜껑이
+  // 귀가 머리에서 갈라지는 골(고양이·여우는 y≈0.83)보다 아래까지 내려가,
+  // 볼을 타고 내려오는 자국이 된다.
+  return smax(sdRoundCone(e, ia, ib, si*ra, si*rb), ybot - q.y, 0.020);
 }
 
 float earInnerBlend(){
-  float si,dep,t0,t1,kin; earInner(si,dep,t0,t1,kin); return kin;
+  float si,dep,t0,t1,kin,ybot; earInner(si,dep,t0,t1,kin,ybot); return kin;
 }
 
 /* 파인 귓바퀴에만 색을 얹기 위한 필드.
