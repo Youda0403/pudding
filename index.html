@@ -2,20 +2,23 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#fdf6ec" />
 <title>탱글 푸딩 만들기</title>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
+<!-- 휴대폰에서 쓰는 화면이라 앱처럼 짠다.
+     미리보기는 늘 제자리에 고정, 가운데 선택지만 스크롤,
+     많이 누르는 버튼(랜덤·저장)은 엄지가 닿는 아래에. -->
+
 <header class="hd">
   <h1>탱글 푸딩</h1>
-  <p class="sub">푸딩을 톡 눌러보세요</p>
 </header>
 
-<main class="wrap">
-
-  <section class="stage">
+<section class="stage">
+  <div class="frame">
     <canvas id="view" width="640" height="640" aria-label="푸딩 미리보기"></canvas>
     <div class="busy" id="busy" hidden>
       <div class="busy-box">
@@ -23,32 +26,33 @@
         <div class="bar"><i id="busyBar"></i></div>
       </div>
     </div>
-  </section>
-
-  <div class="acts">
-    <button type="button" class="btn ghost" id="random">랜덤</button>
-    <button type="button" class="btn go" id="save">GIF 저장</button>
   </div>
+  <p class="tip">톡 누르면 흔들리고, 끌면 돌아가요</p>
+</section>
 
-  <section class="panel">
-    <h2>동물</h2>
-    <div class="chips" id="animals"></div>
+<main class="panel" id="panel">
+  <h2>동물</h2>
+  <div class="chips" id="animals"></div>
 
-    <h2>눈</h2>
-    <div class="chips" id="eyes"></div>
+  <h2>눈</h2>
+  <div class="chips" id="eyes"></div>
 
-    <h2>입</h2>
-    <div class="chips" id="mouths"></div>
+  <h2>입</h2>
+  <div class="chips" id="mouths"></div>
 
-    <h2>꾸미기</h2>
-    <div class="chips" id="toppings"></div>
+  <h2>꾸미기</h2>
+  <div class="chips" id="toppings"></div>
 
-    <h2>색</h2>
-    <div class="colors" id="colors"></div>
-  </section>
+  <h2>색</h2>
+  <div class="colors" id="colors"></div>
 
-  <p class="foot">드래그하면 돌려볼 수 있어요 · 저장하면 한 바퀴 도는 GIF 가 받아집니다</p>
+  <p class="foot">저장하면 한 바퀴 도는 GIF 가 받아집니다</p>
 </main>
+
+<footer class="acts">
+  <button type="button" class="btn ghost" id="random">랜덤</button>
+  <button type="button" class="btn go" id="save">GIF 저장</button>
+</footer>
 
 <script src="js/color.js"></script>
 <script src="js/gif.js"></script>

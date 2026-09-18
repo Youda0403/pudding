@@ -24,11 +24,13 @@
   // 고르기 쉬우라고 두는 기본 색. 색동그라미 말고 옆의 버튼을 누르면
   // 아무 색이나 직접 고를 수 있다.
   // 눈 목록은 2D 판(js/parts/eyes.js)과 같은 색이다.
+  // 한 줄에 여섯 개까지만 둔다. 여덟 개를 두면 폰 가로폭에서 '직접 고르기'
+  // 가 다음 줄로 밀려 색 한 줄이 세 줄을 차지한다.
   var SWATCHES = {
-    body:     ['#f6e7c7', '#f8d3d8', '#d7e7bf', '#e0bb93', '#cfe4f0', '#ddd0ee', '#fbeaa8', '#d8cfc8'],
+    body:     ['#f6e7c7', '#f8d3d8', '#d7e7bf', '#e0bb93', '#cfe4f0', '#ddd0ee'],
     ink:      ['#675347', '#3a2f2a', '#4a6fb0', '#7a5aa8', '#c0566a', '#3f8a63'],
-    syrupCol: ['#cb8b3c', '#70492f', '#e76a85', '#8faf57', '#f0ddc2', '#9b72c4', '#4f9bc7', '#d9534f'],
-    bg:       ['#e5d6c3', '#f0dfe2', '#dbe7d5', '#d6e0ec', '#e6dcef', '#efe6cf', '#ded9d4', '#c9bdb0']
+    syrupCol: ['#cb8b3c', '#70492f', '#e76a85', '#8faf57', '#9b72c4', '#4f9bc7'],
+    bg:       ['#e5d6c3', '#f0dfe2', '#dbe7d5', '#d6e0ec', '#e6dcef', '#c9bdb0']
   };
   var COLOR_ROWS = [
     { key: 'body',     name: '푸딩' },
@@ -168,17 +170,26 @@
       name.textContent = row.name;
       el.appendChild(name);
 
+      // 색동그라미와 '직접 고르기' 는 한 줄로 묶어 두고, 좁으면 줄바꿈시킨다
+      var sws_box = document.createElement('div');
+      sws_box.className = 'sws';
+      el.appendChild(sws_box);
+
       var sws = SWATCHES[row.key].map(function (hex) {
+        // 누르는 영역은 38×44, 보이는 동그라미는 그 안의 30px.
+        // 폰에서 동그라미 크기 그대로 두면 옆 색이 눌린다.
         var b = document.createElement('button');
         b.type = 'button';
         b.className = 'sw';
-        b.style.background = hex;
         b.title = hex;
+        var dot = document.createElement('i');
+        dot.style.setProperty('--c', hex);
+        b.appendChild(dot);
         b.addEventListener('click', function () {
           scene[row.key] = hex;
           sync();
         });
-        el.appendChild(b);
+        sws_box.appendChild(b);
         return { el: b, hex: hex };
       });
 
@@ -190,7 +201,7 @@
         scene[row.key] = pick.value;
         sync();
       });
-      el.appendChild(pick);
+      sws_box.appendChild(pick);
 
       host.appendChild(el);
       refresh.push(function () {

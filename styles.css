@@ -1,3 +1,14 @@
+/* 휴대폰에서 쓰는 화면이 기준이다.
+
+   예전엔 그냥 위에서 아래로 흐르는 문서였는데, 폰에서는 선택지를 고르려고
+   스크롤을 내리는 순간 푸딩이 화면 밖으로 나가 버렸다 — 바꾼 결과를 볼 수가
+   없으니 고르는 재미가 없다. 그래서 페이지 전체 스크롤을 없애고
+   세로로 세 칸(미리보기 · 선택지 · 버튼)으로 나눴다.
+   가운데 칸만 스크롤되므로 푸딩은 늘 보이고, 자주 누르는 버튼은 엄지가
+   닿는 맨 아래에 고정된다.
+
+   손가락으로 누를 것들은 전부 최소 44px 로 잡았다 (애플·구글 권장치). */
+
 :root {
   --bg: #fdf6ec;
   --card: #ffffff;
@@ -7,44 +18,60 @@
   --accent: #e2a35a;
   --accent-dark: #c4823a;
   --radius: 18px;
+  --gutter: 16px;
 }
 
 * { box-sizing: border-box; }
 
-html, body {
+html { height: 100%; }
+
+body {
   margin: 0;
+  height: 100dvh;                 /* 주소창이 접혔다 펴져도 흔들리지 않는다 */
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;               /* 페이지 자체는 스크롤하지 않는다 */
+  overscroll-behavior: none;      /* 끝에서 당겨도 새로고침되지 않게 */
   background: var(--bg);
   color: var(--ink);
   font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
         "Pretendard", "Noto Sans KR", system-ui, sans-serif;
   -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
+/* 세 칸 모두 같은 폭으로 가운데 정렬 (넓은 화면에서도 한 줄 폭 유지) */
+.hd, .stage, .panel, .acts {
+  width: 100%;
+  max-width: 460px;
+  margin-inline: auto;
+}
+
+/* ---------- 1) 머리말 ---------- */
+
 .hd {
-  padding: 26px 20px 6px;
+  flex: none;
+  padding: 12px var(--gutter) 6px;
   text-align: center;
 }
 .hd h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 20px;
   letter-spacing: -0.02em;
 }
-.hd .sub {
-  margin: 4px 0 0;
-  color: var(--dim);
-  font-size: 13px;
-}
 
-.wrap {
-  max-width: 460px;
-  margin: 0 auto;
-  padding: 10px 16px 48px;
-}
-
-/* ---------- 미리보기 ---------- */
+/* ---------- 2) 미리보기 (고정) ---------- */
 
 .stage {
+  flex: none;
+  padding: 0 var(--gutter);
+}
+/* 정사각형 틀. 가로폭·세로높이 어느 쪽이 좁든 잘리지 않게 둘 다 본다. */
+.frame {
   position: relative;
+  width: min(100%, 42dvh);
+  margin: 0 auto;
   border-radius: var(--radius);
   overflow: hidden;
   background: #efe2d2;
@@ -53,12 +80,18 @@ html, body {
 #view {
   display: block;
   width: 100%;
-  height: auto;
   aspect-ratio: 1 / 1;
-  touch-action: none;       /* 드래그로 돌릴 때 화면이 같이 스크롤되지 않게 */
+  touch-action: none;       /* 끌어서 돌릴 때 화면이 같이 움직이지 않게 */
   cursor: grab;
 }
 #view:active { cursor: grabbing; }
+
+.tip {
+  margin: 7px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--dim);
+}
 
 .busy {
   position: absolute;
@@ -69,8 +102,8 @@ html, body {
   backdrop-filter: blur(2px);
 }
 .busy[hidden] { display: none; }
-.busy-box { width: 62%; text-align: center; }
-.busy-box p { margin: 0 0 10px; font-size: 13px; color: var(--ink); }
+.busy-box { width: 70%; max-width: 260px; text-align: center; }
+.busy-box p { margin: 0 0 10px; font-size: 13px; }
 .bar {
   height: 7px;
   border-radius: 99px;
@@ -86,64 +119,43 @@ html, body {
   transition: width 0.12s linear;
 }
 
-/* ---------- 버튼 ---------- */
-
-.acts {
-  display: flex;
-  gap: 10px;
-  margin: 14px 0 18px;
-}
-.btn {
-  flex: 1;
-  padding: 13px 10px;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--ink);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.btn:active { transform: translateY(1px); }
-.btn.go {
-  flex: 1.5;
-  border-color: var(--accent-dark);
-  background: var(--accent);
-  color: #fff;
-}
-.btn[disabled] { opacity: 0.5; cursor: default; }
-
-/* ---------- 선택 패널 ---------- */
+/* ---------- 3) 선택지 (여기만 스크롤) ---------- */
 
 .panel {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px 16px 20px;
+  flex: 1 1 auto;
+  min-height: 0;                    /* 이게 없으면 flex 항목이 안 줄어든다 */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 14px var(--gutter) 6px;
 }
 .panel h2 {
-  margin: 16px 0 8px;
+  margin: 18px 0 9px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--dim);
 }
-.panel h2:first-child { margin-top: 2px; }
+.panel h2:first-child { margin-top: 0; }
 
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 8px;
 }
 .chip {
-  padding: 8px 13px;
+  min-height: 44px;                 /* 손가락으로 누를 최소 크기 */
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
   border-radius: 99px;
   border: 1px solid var(--line);
-  background: #fffaf3;
+  background: var(--card);
   color: var(--ink);
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
   cursor: pointer;
+  user-select: none;
 }
 .chip[aria-pressed="true"] {
   border-color: var(--accent-dark);
@@ -154,47 +166,111 @@ html, body {
 
 /* ---------- 색 ---------- */
 
-.colors { display: grid; gap: 12px; }
-.row { display: flex; align-items: center; gap: 9px; }
+/* 이름표를 색동그라미 옆이 아니라 위에 둔다. 옆에 두면 폰 가로폭에서
+   (38 이름표 + 8개 × 40 + 직접고르기 44 = 466px) 끝의 두어 개와
+   '직접 고르기' 버튼이 화면 밖으로 잘려 아예 누를 수가 없었다. */
+.colors { display: grid; gap: 14px; }
 .row .name {
-  width: 42px;
-  flex: none;
-  font-size: 13px;
+  display: block;
+  margin: 0 0 4px 3px;
+  font-size: 12px;
   color: var(--dim);
 }
+.sws {
+  display: flex;
+  flex-wrap: wrap;                  /* 더 좁은 화면에서는 줄을 바꾼다 */
+  align-items: center;
+  gap: 2px;
+}
+/* 색동그라미도 누르는 것이라 세로 44px 을 확보한다
+   (보이는 원은 30px, 나머지는 투명한 여백) */
 .sw {
-  width: 26px;
-  height: 26px;
+  width: 38px;
+  height: 44px;
   flex: none;
   padding: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 0;
+  background: none;
   cursor: pointer;
+  display: grid;
+  place-items: center;
 }
-.sw[aria-pressed="true"] {
-  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent);
-}
-.pick {
+.sw i {
+  display: block;
   width: 30px;
   height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: var(--c);
+}
+.sw[aria-pressed="true"] i {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+.pick {
+  width: 44px;
+  height: 44px;
   flex: none;
   margin-left: auto;
-  padding: 0;
+  padding: 2px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 12px;
   background: var(--card);
   cursor: pointer;
 }
 
 .foot {
-  margin: 18px 4px 0;
+  margin: 20px 4px 0;
   font-size: 12px;
-  line-height: 1.7;
   color: var(--dim);
   text-align: center;
 }
 
-@media (max-width: 380px) {
-  .row .name { width: 36px; font-size: 12px; }
-  .sw { width: 23px; height: 23px; }
+/* ---------- 4) 버튼 (아래 고정) ---------- */
+
+.acts {
+  flex: none;
+  display: flex;
+  gap: 10px;
+  padding: 10px var(--gutter);
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+.btn {
+  flex: 1;
+  min-height: 52px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.btn:active { transform: translateY(1px); }
+.btn.go {
+  flex: 1.4;
+  border-color: var(--accent-dark);
+  background: var(--accent);
+  color: #fff;
+}
+.btn[disabled] { opacity: 0.5; cursor: default; }
+
+/* 세로가 짧은 화면에서는 미리보기를 줄여 선택지 칸을 넓힌다.
+   640px 짜리 폰에서 42dvh 로 두면 고를 자리가 220px 밖에 안 남아
+   칩 네 개가 겨우 보인다. */
+@media (max-height: 720px) {
+  .hd { padding: 6px var(--gutter) 2px; }
+  .hd h1 { font-size: 18px; }
+  .frame { width: min(100%, 36dvh); }
+  .panel h2 { margin: 14px 0 7px; }
+  .colors { gap: 11px; }
+}
+
+/* 가로로 든 폰 */
+@media (max-height: 520px) {
+  .frame { width: min(100%, 32dvh); }
+  .tip { display: none; }
 }
