@@ -502,7 +502,14 @@ float syrupEdge(vec3 q){
 
 float sdSyrup(vec3 q){
   if(uSyrup < 0.5) return 1e5;
-  return smax(sdBody(q) - SY_COAT, syrupEdge(q), 0.018);
+  float e = syrupEdge(q);
+  /* 층의 두께를 자리마다 다르게 준다 — 흘러내린 끝은 0 에서 시작해
+     안쪽으로 0.055 쯤 들어가면 제 두께가 된다. 시럽은 가장자리가 얇게
+     사라지지, 두께가 일정한 뚜껑처럼 뚝 끊기지 않는다.
+     두께가 위치에 따라 변하므로 거리장의 기울기가 1 을 넘는다.
+     마지막에 나눠서 과대평가를 막는다. */
+  float coat = SY_COAT*smoothstep(0.0, 0.055, -e*1.8);
+  return smax(sdBody(q) - coat, e, 0.014)/1.35;
 }
 
 /* 시럽을 칠할 자리. 표면의 그 점을 어느 덩어리가 만들었는지로 가른다 —
@@ -667,6 +674,7 @@ void main(){
     float spe2 = pow(clamp(dot(n, hal), 0.0, 1.0), 28.0);
 
     vec3 base; float gloss, envAmt;
+    float wet = 0.0;              // 시럽이 덮인 정도 (반짝임에 쓴다)
 
     if(hit.y < 0.5){
       // 커스터드. 지정 색은 sRGB 라서 선형으로 바꿔 조명에 넣는다.
@@ -689,15 +697,33 @@ void main(){
       // vec3(0.930,0.788,0.734) 이 나오는 비율이다 — 조금 어둡고 붉게.
       base = mix(base, pow(uBody*vec3(0.964, 0.871, 0.941), vec3(2.2)), em*0.88);
 
-      // 시럽. 형태를 만든 것과 같은 거리장으로 칠하므로 턱과 색이 같은 자리다.
-      float sm = 1.0 - smoothstep(-0.004, 0.012, syrupInk(q));
-      base = mix(base, pow(uSyrupCol, vec3(2.2)), sm);
+      /* 시럽. 색을 덮어 칠하면 모자가 된다. 시럽은 '덮개' 가 아니라
+         '통과시키는 층' 이라, 아래의 커스터드가 비쳐 보이고 두꺼운 곳일수록
+         색이 진해져야 한다. 그래서 Beer-Lambert 로 칠한다.
+
+           나온 빛 = 아래 색 × 투과율 + 시럽 자체가 되쏘는 빛
+           투과율  = 시럽색 ^ 두께      (두꺼울수록 지수적으로 어두워진다)
+
+         두께는 두 가지로 만든다.
+           · 경계에서 멀수록 두껍다 — 흘러내린 끝이 얇게 사라진다
+           · 비스듬히 볼수록 두껍다 — 빛이 층을 길게 지나가므로(1/cos)
+             가장자리가 저절로 진해진다. 유리질로 보이는 건 거의 이 항 덕이다. */
+      float sm = 1.0 - smoothstep(-0.003, 0.007, syrupInk(q));
+      wet = sm;
+      if(sm > 0.001){
+        vec3  tint  = pow(uSyrupCol, vec3(2.2));
+        float edge  = -syrupEdge(q)*1.8;                    // 경계에서 0, 안쪽이 +
+        float thick = mix(0.30, 1.0, smoothstep(0.0, 0.055, edge));
+        thick /= max(dot(n, -rd), 0.30);
+        vec3  trans = pow(max(tint, vec3(0.015)), vec3(thick*1.25));
+        base = mix(base, base*trans + tint*0.16*thick, sm);
+      }
 
       float ink  = faceInk(q, sdBodyEars(q));
       float mask = 1.0 - smoothstep(0.0, 0.012, ink);
       base = mix(base, pow(uInk, vec3(2.2)), mask);
-      gloss = (1.0 - mask*0.55)*(1.0 + sm*0.85);   // 시럽은 젖어서 더 번들거린다
-      envAmt = 0.16 + sm*0.10;
+      gloss = (1.0 - mask*0.55)*(1.0 + sm*0.60);
+      envAmt = 0.16 + sm*0.22;
     } else {
       base = pow(uPlate, vec3(2.2));                   // 도자기
       gloss = 0.55; envAmt = 0.10;
@@ -713,6 +739,10 @@ void main(){
     col  = mix(col, env, fre*envAmt);
     col += spe *sha*0.72*gloss;
     col += spe2*sha*0.07*gloss;
+    // 젖은 표면의 반짝임. 넓게 번지는 spe2 를 키우면 플라스틱처럼 보이므로
+    // 좁고 센 spe 쪽만 더한다.
+    col += spe *sha*1.05*wet;
+    col += fre *0.16*wet*skyColor(reflect(rd, n));
   }
 
   if(!isBg){
