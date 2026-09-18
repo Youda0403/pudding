@@ -12,7 +12,7 @@
 </head>
 <body>
 <canvas id="c" width="640" height="640"></canvas>
-<p class="hint">드래그: 시점 · 1 완성 · 2 정면 실루엣 · 3 측면 실루엣 · Space 흔들림 정지</p>
+<p class="hint" id="hint">드래그: 시점 · 1 완성 · 2 정면 실루엣 · 3 측면 실루엣 · Space 흔들림 정지 · E 눈 5종</p>
 
 <script id="vs" type="x-shader">#version 300 es
 in vec2 aPos;
@@ -28,6 +28,7 @@ uniform float uTime;
 uniform float uMode;     // 0 완성 렌더 / 1 정면 실루엣 / 2 측면 실루엣
 uniform vec3  uCam;      // 방위각, 고도, 거리
 uniform float uJiggle;   // 흔들림 세기 (0 이면 정지)
+uniform float uEye;      // 눈 종류 0 동글 / 1 올라간 / 2 내려간 / 3 반 / 4 웃는
 
 /* =====================================================================
    고양이 푸딩 (Cat Pudding) — SDF
@@ -231,12 +232,17 @@ float bodyZScale(float y){
 const vec2  HEAD_R  = vec2(0.6495, 0.6140);   // 좌우 반폭, 위아래 반높이
 const float HEAD_CY = 0.2210;
 
-/* 밑동 치마 — 중력으로 퍼진 부분. 머리 공만으로는 바닥이 레퍼런스보다
-   0.03 좁다. 옆면이 수직인 낮은 원기둥을 아래에만 더해 그만큼 채운다. */
-const float BASE_R   = 0.668;   // 바닥 반폭 = 가장 넓은 곳
-const float BASE_FIL = 0.160;   // 바닥에서 어깨로 넘어가는 라운드
-const float BASE_Y   = 0.075;
-const float BASE_HH  = 0.075;
+/* 밑동 치마 — 중력으로 퍼진 배. 머리 타원체만으로는 바닥이 레퍼런스보다
+   0.03 좁아서, 납작하고 넓은 '테두리가 둥근 원반'을 아래에 더해 채운다.
+
+   여기서 곧은 부분(BASE_HH)을 0 으로 두는 게 중요하다. 옆면이 수직인
+   구간은 곡률이 0 인데 그 위아래는 휘어 있어서, 만나는 높이에서 곡률이
+   툭 끊긴다. 실루엣은 매끈한데 빛을 받으면 그 자리가 단차처럼 보인다.
+   반지름이 계속 변하는 곡면만 쓰면 그런 자리가 생기지 않는다. */
+const float BASE_R   = 0.676;   // 배가 가장 넓은 곳의 반폭
+const float BASE_FIL = 0.220;   // 그 위아래로 말려 들어가는 곡률 반지름
+const float BASE_Y   = 0.150;   // 가장 넓어지는 높이
+const float BASE_HH  = 0.000;   // 곧은 구간 없음
 const float BODY_TOP = 0.860;
 
 float sdBody(vec3 q){
@@ -244,9 +250,10 @@ float sdBody(vec3 q){
   vec3  s  = q; s.z /= zs;                          // 높이에 따라 앞뒤로 눌린 단면
   float head = sdEllipsoid(s - vec3(0.0, HEAD_CY, 0.0), vec3(HEAD_R.x, HEAD_R.y, HEAD_R.x));
   float mold = sdRoundedCylinder(s - vec3(0.0, BASE_Y, 0.0), BASE_R*0.5, BASE_FIL, BASE_HH);
-  // 어깨 이음새는 3차 smin. 섞이는 구간이 넓어 옆선에 꺾인 곳이 남지 않는다.
+  // 어깨 이음새도 지수 smin. 다항식 계열은 섞이는 구간의 '경계'에서 곡률이
+  // 끊겨 그 자리에 띠가 보인다 — 몸통처럼 넓고 완만한 면에서 특히 눈에 띈다.
   // 보정은 '그 높이의 눌린 정도'로 — 전역 최솟값을 쓰면 거리장 축척이 어긋난다.
-  return sminCubic(mold, head, 0.120) * zs;
+  return sminExp(mold, head, 0.015) * zs;
 }
 
 /* 얼굴 좌표 (x, y) 를 머리 앞면 위로 올린다.
@@ -294,21 +301,47 @@ float sdEars(vec3 q){
 /* ---------------------------------------------------------------------
    6. 얼굴 자국
 
-   눈은 표면에 살짝 얹은 작은 구로 파낸 보조개다.
-   입·수염·하트는 방식이 다르다. 곡면 위에 3D 캡슐을 얹어 파면 볼이 휜
-   만큼 획의 가운데가 얕아져 자국이 끊긴다. 그래서 "정면에서 본 2D 모양"을
+   눈·입·수염·하트 모두 같은 방식이다. 곡면 위에 3D 도형을 얹어 파면 볼이
+   휜 만큼 자국의 가운데가 얕아져 획이 끊긴다. 그래서 "정면에서 본 2D 모양"을
    z 축 방향 기둥으로 밀어낸 뒤, 표면에서 INK_DEPTH 이내인 껍질과 교집합해
    새긴다. 면이 어디로 휘든 깊이가 일정하고, 정면 모양은 레퍼런스 그대로다.
    --------------------------------------------------------------------- */
 const float INK_DEPTH = 0.028;
 
+/* 눈 5종 — 전부 같은 원에서 출발한다.
+   자른 눈(올라간·내려간·반)은 그 원을 직선 하나로 스윽 잘라 낸 모양이고,
+   자르는 각도와 깊이만 다르다. 반달보다는 조금 넓게 남는다.
+   자르는 깊이는 셋 다 같고(중심에서 0.50·r) 각도만 다르다.
+       올라간   +16°   안쪽 위를 비스듬히  → 바깥쪽이 올라가 보인다
+       내려간   -22°   바깥쪽 위를 비스듬히 → 바깥쪽이 내려가 보인다
+       반         0°   수평
+   좌우 대칭 좌표에서 그리므로 각도는 반대쪽 눈에서 저절로 뒤집힌다.
+   (2D 픽크루 쪽 js/parts/eyes.js 에서 참고 이미지에 맞춰 구한 값과 같다) */
+const vec2  EYE_POS = vec2(0.180, 0.500);
+const float EYE_R   = 0.052;
+
+float sdEye2(vec2 p){
+  if(uEye < 0.5) return length(p) - EYE_R;                  // 동글
+  if(uEye < 3.5){                                           // 올라간 / 내려간 / 반
+    float ang = (uEye < 1.5) ? 0.28 : (uEye < 2.5) ? -0.38 : 0.00;
+    vec2 ad = vec2(ang, 0.500);
+    vec2 q = rot(-ad.x)*p;
+    // 잘린 모서리도 칼처럼 서지 않게 살짝 둥글린다
+    return smax(length(p) - EYE_R, q.y - ad.y*EYE_R, 0.007);
+  }
+  // 웃는 눈 — 위로 볼록한 호 하나 (∩)
+  return sdArc2(vec2(p.x, -(p.y - 0.30*EYE_R)), 0.86*EYE_R, 0.20*EYE_R, 1.45);
+}
+
 // 정면에서 본 얼굴 자국
 float faceMark2D(vec2 c){
   vec2 m = vec2(abs(c.x), c.y);            // 좌우 대칭
 
+  float eye = sdEye2(m - EYE_POS);
+
   // 입 ω — 아래로 열린 원호 하나(반각 105°).
   // 대칭 좌표에서 그리므로 반대쪽 반원이 저절로 생겨 ω 가 된다.
-  float d = sdArc2(m - vec2(0.034, 0.408), 0.032, 0.011, 1.83);
+  float d = min(eye, sdArc2(m - vec2(0.034, 0.408), 0.032, 0.011, 1.83));
 
   // 수염 세 갈래
   d = min(d, sdCapsule2(m, vec2(0.245, 0.436), vec2(0.425, 0.462), 0.012));
@@ -320,11 +353,6 @@ float faceMark2D(vec2 c){
   return d;
 }
 
-// 눈 — 표면에서 0.026 띄운 구. 파이는 깊이가 0.032 인 동그란 보조개가 된다.
-float sdEyes(vec3 q){
-  return sdSphere(vec3(abs(q.x), q.y, q.z) - onFace(vec2(0.180, 0.500), 0.026), 0.058);
-}
-
 /* 파낼 영역. body 는 자국을 파기 전의 몸통 거리장이다.
      prism : 정면 2D 모양을 z 로 밀어낸 기둥
      shell : 표면에서 INK_DEPTH 이내 (여기서 깊이가 일정해진다)
@@ -332,7 +360,7 @@ float sdEyes(vec3 q){
    교집합도 smax 로 해야 자국 바닥과 벽이 만나는 곳까지 둥글게 남는다. */
 float faceInk(vec3 q, float body){
   float shell = smax(-(body + INK_DEPTH), 0.10 - q.z, 0.014);
-  return min(sdEyes(q), smax(faceMark2D(q.xy), shell, 0.011));
+  return smax(faceMark2D(q.xy), shell, 0.011);
 }
 
 /* ---------------------------------------------------------------------
@@ -571,11 +599,15 @@ void main(){
     time: gl.getUniformLocation(prog, 'uTime'),
     mode: gl.getUniformLocation(prog, 'uMode'),
     cam: gl.getUniformLocation(prog, 'uCam'),
-    jiggle: gl.getUniformLocation(prog, 'uJiggle')
+    jiggle: gl.getUniformLocation(prog, 'uJiggle'),
+    eye: gl.getUniformLocation(prog, 'uEye')
   };
 
+  // 눈 종류. E 키로 돌려 가며 본다.
+  var EYES = ['동글', '올라간', '내려간', '반', '웃는'];
+
   var CAT = window.CAT3D = {
-    mode: 0, jiggle: 1,
+    mode: 0, jiggle: 1, eye: 0,
     az: 0.40, el: 0.26, dist: 6.00,
     draw: function(t){
       // 캔버스 크기가 바뀌었을 수 있으니 뷰포트를 매번 맞춘다
@@ -586,10 +618,14 @@ void main(){
       gl.uniform1f(U.mode, CAT.mode);
       gl.uniform3f(U.cam, CAT.az, CAT.el, CAT.dist);
       gl.uniform1f(U.jiggle, CAT.jiggle);
+      gl.uniform1f(U.eye, CAT.eye);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.finish();
     }
   };
+
+  var hint = document.getElementById('hint');
+  var hintBase = hint.textContent;
 
   var drag = null;
   canvas.addEventListener('pointerdown', function(e){ drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
@@ -605,6 +641,10 @@ void main(){
     if(e.key === '2') CAT.mode = 1;
     if(e.key === '3') CAT.mode = 2;
     if(e.key === ' '){ CAT.jiggle = CAT.jiggle > 0 ? 0 : 1; e.preventDefault(); }
+    if(e.key === 'e' || e.key === 'E'){
+      CAT.eye = (CAT.eye + 1) % EYES.length;
+      hint.textContent = hintBase + '  —  눈: ' + EYES[CAT.eye] + ' 눈';
+    }
   });
 
   var start = performance.now();
