@@ -71,6 +71,17 @@ float sminCubic(float a, float b, float k){
   return min(a, b) - h*h*h*k*(1.0/6.0);
 }
 
+/* 지수 smooth min. 다항식 계열은 |a-b| = k 인 경계에서 곡률이 끊겨,
+   강한 빛 아래 그 자리에 띠처럼 자국이 보인다(법선을 색으로 뿌려 보면 선이
+   그어진다). 지수형은 경계 자체가 없어서 — 영향이 멀리까지 지수적으로
+   줄어들 뿐 끊기는 곳이 없다 — 곡률이 어디서도 튀지 않는다. 사포로 간 면.
+   값이 항상 min 보다 작아 거리를 과대평가하지 않으므로 레이마칭에도 안전하다.
+   d=|a-b| 로 정리해 두면 exp 가 넘칠 일도 없다. */
+float sminExp(float a, float b, float k){
+  float m = min(a, b);
+  return m - k*log2(1.0 + exp2(-abs(a - b)/k));
+}
+
 // smooth maximum. 교집합/차집합에서 모서리를 없앨 때.
 float smax(float a, float b, float k){
   float h = clamp(0.5 - 0.5*(b - a)/k, 0.0, 1.0);
@@ -206,9 +217,8 @@ vec3 opJiggle(vec3 p, float t, float amp, out float lip){
    --------------------------------------------------------------------- */
 const float BODY_ZS  = 0.90;                        // 밑동의 깊이/폭
 const float BODY_ZS_T = 0.72;                       // 머리 위의 깊이/폭
-// 거리 보정 계수. 눌린 정도가 높이에 따라 변하므로 가장 많이 눌린 값보다
-// 조금 더 보수적으로 잡는다 (기울기 항까지 감안).
-const float ZS_LIP   = 0.62;
+// 눌린 정도가 높이에 따라 변하는 만큼의 여유. 맨 마지막에 한 번만 곱한다.
+const float FIELD_LIP = 0.85;
 
 // 높이에 따른 앞뒤 눌림
 float bodyZScale(float y){
@@ -228,7 +238,9 @@ float sdBody(vec3 q){
   float head = sdEllipsoid(s - HEAD_C, HEAD_R3);
   // 어깨 이음새는 3차 smin. 같은 부풀음이라도 섞이는 구간이 넓어서
   // 옆선에 '꺾인 곳'이 한 점도 남지 않는다.
-  return sminCubic(mold, head, 0.150) * ZS_LIP;
+  // 보정은 '그 높이의 눌린 정도'로. 전역 최솟값을 쓰면 거리장이 실제보다
+  // 훨씬 작아져, 뒤에서 귀와 섞을 때 두 거리의 축척이 어긋나 이음새가 일그러진다.
+  return sminCubic(mold, head, 0.150) * bodyZScale(q.y);
 }
 
 /* 얼굴 좌표 (x, y) 를 머리 앞면 위로 올린다.
@@ -259,30 +271,34 @@ vec3 onFace(vec2 c, float lift){
      귀 끝 높이 1.153 = 몸통 0.86 + 0.29   → 전체 높이의 약 1/4 이 귀
      밑동 폭 0.38 (전체 높이의 1/3)        → 얇은 뿔이 아니라 통통한 삼각
      두 귀 끝 사이 0.72,  귀 사이 골은 0.84 에서 닫힌다
-     귀 끝은 바깥으로 9°, 앞으로 12° 눕는다
+     귀 끝은 바깥으로 10°, 앞으로 13° 눕는다
+   다만 끝 굵기(EAR_R2)만은 레퍼런스보다 일부러 두껍게 뒀다. 더 뭉툭한
+   쪽이 푸딩답고, 원뿔면과 끝 구의 곡률 차이도 줄어 면이 매끈해진다.
+   그만큼 귀 위쪽이 레퍼런스보다 전체 높이의 0.02 정도 넓다.
    --------------------------------------------------------------------- */
 const vec3  EAR_BASE = vec3(0.302, 0.745, 0.010);
-const vec3  EAR_TIP  = vec3(0.361, 1.108, 0.086);
+const vec3  EAR_TIP  = vec3(0.361, 1.078, 0.086);
 const float EAR_R1   = 0.233;   // 밑동 굵기 — 머리 옆선을 그대로 이어받을 만큼 두껍게
-const float EAR_R2   = 0.048;   // 끝 굵기 — 0 이 아니어야 뾰족해지지 않는다
+const float EAR_R2   = 0.075;   // 끝 굵기 — 그대로 귀 끝의 둥근 반지름이 된다.
+                                // 크게 둘수록 뭉툭해지고, 원뿔면과 끝 구가 만나는
+                                // 곳의 곡률 차이도 같이 줄어 면이 매끈해진다.
 // 귀 단면의 앞뒤/좌우 비. 밑동은 살짝 납작하지만 끝으로 갈수록 앞뒤로 길어진다.
 // 레퍼런스 측면 칸을 재면 귀 끝의 좌우 폭은 0.09, 앞뒤 깊이는 0.18 — 즉 귀 끝은
 // 뾰족한 '점'이 아니라 앞뒤로 누운 둥근 '능선'이다. 이게 귀를 통통해 보이게 한다.
-const float EAR_FLAT_B = 0.90;   // 밑동
-const float EAR_FLAT_T = 1.65;   // 끝
+const float EAR_FLAT_B = 0.95;   // 밑동
+const float EAR_FLAT_T = 1.25;   // 끝
 
 float sdEars(vec3 q){
   vec3 e = vec3(abs(q.x), q.y, q.z);      // 좌우 대칭
   // clamp 로 자르면 잘리는 높이에서 기울기가 꺾여 귀 밑동에 선반 같은 자국이
   // 남는다. smoothstep 은 양 끝에서 기울기가 0 이라 그런 자국이 생기지 않는다.
   // 시작 높이(0.70)는 머리 속이라 눈에 보이지 않는다.
-  float fz = mix(EAR_FLAT_B, EAR_FLAT_T, smoothstep(0.70, 1.15, e.y));
+  float fz = mix(EAR_FLAT_B, EAR_FLAT_T, smoothstep(0.55, 1.20, e.y));
   e.z /= fz;
   vec3 a = vec3(EAR_BASE.x, EAR_BASE.y, EAR_BASE.z/EAR_FLAT_B);
   vec3 b = vec3(EAR_TIP.x,  EAR_TIP.y,  EAR_TIP.z /EAR_FLAT_T);
-  // z 를 늘리기만 하므로 거리는 과대평가되지 않는다. 다만 늘리는 비율이
-  // 높이에 따라 변하는 만큼만 보수적으로 줄여 둔다.
-  return sdRoundCone(e, a, b, EAR_R1, EAR_R2) * 0.85;
+  // z 를 늘리기만 하므로 거리가 과대평가되지 않는다 (여유는 맨 끝에서 한 번에).
+  return sdRoundCone(e, a, b, EAR_R1, EAR_R2);
 }
 
 /* ---------------------------------------------------------------------
@@ -294,7 +310,7 @@ float sdEars(vec3 q){
    z 축 방향 기둥으로 밀어낸 뒤, 표면에서 INK_DEPTH 이내인 껍질과 교집합해
    새긴다. 면이 어디로 휘든 깊이가 일정하고, 정면 모양은 레퍼런스 그대로다.
    --------------------------------------------------------------------- */
-const float INK_DEPTH = 0.020;
+const float INK_DEPTH = 0.028;
 
 // 정면에서 본 얼굴 자국
 float faceMark2D(vec2 c){
@@ -325,8 +341,8 @@ float sdEyes(vec3 q){
              + 앞면만 (z 로 자르지 않으면 뒤통수에도 같은 자국이 찍힌다)
    교집합도 smax 로 해야 자국 바닥과 벽이 만나는 곳까지 둥글게 남는다. */
 float faceInk(vec3 q, float body){
-  float shell = smax(-(body + INK_DEPTH), 0.10 - q.z, 0.010);
-  return min(sdEyes(q), smax(faceMark2D(q.xy), shell, 0.008));
+  float shell = smax(-(body + INK_DEPTH), 0.10 - q.z, 0.014);
+  return min(sdEyes(q), smax(faceMark2D(q.xy), shell, 0.011));
 }
 
 /* ---------------------------------------------------------------------
@@ -342,16 +358,13 @@ vec4 puddingSpace(vec3 p){
 // 몸통 + 귀. 얼굴을 파기 전 단계라서 얼굴 자국이 '표면'을 찾을 때도 이걸 쓴다.
 float sdBodyEars(vec3 q){
   // 귀를 몸통에 녹여 붙인다.
-  // 뭉개는 정도 k 를 '좌우 위치'에 따라 바꾸는 것이 이 모델의 핵심이다.
-  //   가운데(x≈0) : 두 귀 사이의 골이 뭉개지면 안 되므로 작게
-  //   그 바깥     : 귀 밑동이 머리에 완전히 녹아 붙도록 크게.
-  //                 여기를 작게 두면 귀 뒤쪽에 접힌 자국(crease)이 남는다.
-  // 밑동 높이에서는 한 번 더 키워 목이 생기지 않게 한다.
-  float kx = mix(0.045, 0.220, smoothstep(0.00, 0.34, abs(q.x)));
-  float k  = mix(kx, 0.220, 1.0 - smoothstep(0.50, 0.72, q.y));
-  // 2차 smin 은 이어지는 경계에서 곡률이 튀어 강한 빛 아래서 희미한 선이 보인다.
-  // 3차 smin 은 그 지점에서 곡률까지 이어져 자국이 남지 않는다.
-  return sminCubic(sdBody(q), sdEars(q), k);
+  // k 는 좌우 위치에 따라서만, 그것도 아주 완만하게 바꾼다.
+  //   가운데(x≈0) : 작게 — 지수 smin 은 멀리까지 영향을 주므로, 여기를 키우면
+  //                 두 귀 사이 골이 메워진다
+  //   그 바깥     : 크게 — 귀 밑동·뒤쪽이 머리에 넉넉히 녹아 붙는다
+  // 변화가 완만해서 k 자체가 만드는 곡률 변화는 눈에 띄지 않는다.
+  float k = mix(0.008, 0.038, smoothstep(0.02, 0.36, abs(q.x)));
+  return sminExp(sdBody(q), sdEars(q), k);
 }
 
 float sdCatPudding(vec3 p){
@@ -361,9 +374,9 @@ float sdCatPudding(vec3 p){
   float d = sdBodyEars(q);
 
   // 얼굴을 미세하게 파낸다 (모서리 없이).
-  d = opSmoothSub(faceInk(q, d), d, 0.012);
+  d = opSmoothSub(faceInk(q, d), d, 0.017);
 
-  d *= sp.w;                                 // 왜곡 보정
+  d *= FIELD_LIP * sp.w;                     // 왜곡 여유 + 흔들림 보정 (한 번에)
 
   // 접시에 눌려 평평하게 잘린 바닥.
   // 평면과의 교집합도 smax 로 해야 밑동 테두리가 칼처럼 서지 않고
