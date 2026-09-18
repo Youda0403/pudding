@@ -79,7 +79,7 @@ float sminCubic(float a, float b, float k){
    강한 빛 아래 그 자리에 띠처럼 자국이 보인다(법선을 색으로 뿌려 보면 선이
    그어진다). 지수형은 경계 자체가 없어서 — 영향이 멀리까지 지수적으로
    줄어들 뿐 끊기는 곳이 없다 — 곡률이 어디서도 튀지 않는다. 사포로 간 면.
-   값이 항상 min 보다 작아 거리를 과대평가하지 않으므로 레이마칭에도 안전하다.
+   값이 항상 min 보다 작아 거 거리를 과대평가하지 않으므로 레이마칭에도 안전하다.
    d=|a-b| 로 정리해 두면 exp 가 넘칠 일도 없다. */
 float sminExp(float a, float b, float k){
   float m = min(a, b);
@@ -206,16 +206,7 @@ vec3 opJiggle(vec3 p, float t, float amp, out float lip){
 
    축 위의 공이 이 직선에 접할 조건:  r = (0.748 - 0.317·yc) / √(1+0.317²)
    --------------------------------------------------------------------- */
-const float BODY_ZS   = 0.90;   // 밑동의 깊이/폭
-const float BODY_ZS_T = 0.72;   // 머리 위의 깊이/폭
 const float FIELD_LIP = 0.85;   // 눌림이 높이에 따라 변하는 만큼의 여유
-
-// 단면은 높이마다 다르다. 레퍼런스의 정면 칸과 측면 칸을 같은 척도로 재면
-// 앞뒤/좌우 비가 밑동 0.90 → 머리 위 0.72 로 줄어든다. 위로 갈수록 좌우로만
-// 남고 앞뒤로 얇아지는, 고양이 머리다운 단면이다.
-float bodyZScale(float y){
-  return mix(BODY_ZS, BODY_ZS_T, smoothstep(0.35, 0.73, y));
-}
 
 /* 몸통 — 바깥선에 접하는 타원체 하나. 이게 전부다.
 
@@ -234,21 +225,25 @@ float bodyZScale(float y){
 const vec2  HEAD_R  = vec2(0.6800, 0.7463);   // 좌우 반폭, 위아래 반높이
 const float HEAD_CY = 0.0887;                 // 가장 넓어지는 높이
 
-
+// 몸통 - 공간 스케일링(거리 왜곡) 제거 및 Exact Ellipsoid 적용
 float sdBody(vec3 q){
-  float zs = bodyZScale(q.y);
-  vec3  s  = q; s.z /= zs;                          // 높이에 따라 앞뒤로 눌린 단면
-  // 덩어리 하나라 섞을 것도 이음매도 없다.
-  // 보정은 '그 높이의 눌린 정도'로 — 전역 최솟값을 쓰면 거리장 축척이 어긋난다.
-  return sdEllipsoid(s - vec3(0.0, HEAD_CY, 0.0), vec3(HEAD_R.x, HEAD_R.y, HEAD_R.x)) * zs;
+  // 위로 갈수록 앞뒤 두께가 얇아지는 비율 (밑단 0.90 -> 정수리 0.72)
+  float zs = mix(0.90, 0.72, smoothstep(0.35, 0.73, q.y)); 
+  vec3 r = vec3(HEAD_R.x, HEAD_R.y, HEAD_R.x * zs);
+  vec3 p = q - vec3(0.0, HEAD_CY, 0.0);
+  
+  // Inigo Quilez - Exact Ellipsoid (보수적 거리 추정)
+  float k0 = length(p/r);
+  float k1 = length(p/(r*r));
+  return k0*(k0 - 1.0)/k1;
 }
 
-/* 얼굴 좌표 (x, y) 를 머리 앞면 위로 올린다.
-   lift 만큼 바깥으로 띄우면 그만큼 얕게 파인다. */
+// 얼굴 표면 추적 로직도 왜곡 없이 수정
 vec3 onFace(vec2 c, float lift){
   float ty = (c.y - HEAD_CY)/HEAD_R.y;
   float tx = c.x/HEAD_R.x;
-  float z  = bodyZScale(c.y)*HEAD_R.x*sqrt(max(0.0, 1.0 - ty*ty - tx*tx));  // 앞면까지
+  float zs = mix(0.90, 0.72, smoothstep(0.35, 0.73, c.y));
+  float z  = zs * HEAD_R.x * sqrt(max(0.0, 1.0 - ty*ty - tx*tx));  // 앞면까지
   float n  = sqrt(max(1e-5, c.x*c.x + z*z));
   return vec3(c.x, c.y, z) + vec3(c.x/n, 0.0, z/n)*lift;
 }
@@ -302,10 +297,10 @@ void earSpec(out vec3 a, out float r1, out vec3 b, out float r2, out float fz, o
     a=vec3(0.2500,0.6200,0.000); r1=0.190; b=vec3(0.2750,1.1900,0.000); r2=0.100; fz=0.62; k=0.020;
   } else if(uAnimal < 3.5){ // 롭이어 — 강아지보다 길고 굵게 늘어진 귀
     a=vec3(0.2300,0.8100,0.000); r1=0.100; b=vec3(0.7900,0.3000,0.000); r2=0.210; fz=0.46; k=0.030;
-  } else if(uAnimal < 4.5){ // 곰 — 작고 동그란 귀
-    a=vec3(0.2850,0.8950,0.000); r1=0.155; b=vec3(0.3050,0.9500,0.000); r2=0.145; fz=0.85; k=0.022;
-  } else if(uAnimal < 5.5){ // 쥐 — 크고 앞뒤로 얇은 원반 귀
-    a=vec3(0.3350,0.9000,0.000); r1=0.205; b=vec3(0.3550,0.9450,0.000); r2=0.195; fz=0.45; k=0.022;
+  } else if(uAnimal < 4.5){ // 곰 — 작고 동그란 귀 (두께와 간격을 늘려 여드름 방지)
+    a=vec3(0.2850,0.8500,0.000); r1=0.165; b=vec3(0.3150,0.9800,0.000); r2=0.150; fz=0.95; k=0.035;
+  } else if(uAnimal < 5.5){ // 쥐 — 크고 앞뒤로 얇은 원반 귀 (더 둥글고 넓게)
+    a=vec3(0.3350,0.8600,0.000); r1=0.220; b=vec3(0.3700,0.9800,0.000); r2=0.190; fz=0.70; k=0.035;
   } else if(uAnimal < 6.5){ // 여우 — 고양이보다 크고 길쭉한 삼각 귀
     a=vec3(0.2182,0.2693,0.000); r1=0.4237; b=vec3(0.3150,1.1250,0.020); r2=0.125; fz=0.95; k=0.012;
   } else {                  // 햄스터 — 레퍼런스(다람쥐)보다 훨씬 작은, 실제 햄스터 같은 귀
