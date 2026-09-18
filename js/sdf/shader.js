@@ -26,7 +26,7 @@ uniform float uAnimal;   // 0 고양이 1 강아지 2 토끼 3 롭이어 4 곰 5
 uniform vec3  uBody;     // 커스터드 색
 uniform vec3  uInk;      // 눈·입 색
 uniform vec3  uSyrupCol; // 시럽 색
-uniform float uSyrup;    // 0 없음 / 1 흘러내림 / 2 웅덩이
+uniform float uSyrup;    // 0 없음 / 1 머리 / 2 전체 / 3 접시
 uniform vec3  uPlate;    // 접시 색
 uniform vec3  uBg;       // 배경 색
 
@@ -477,11 +477,14 @@ float sdBodyEars(vec3 q){
    시럽 두께만큼의 턱이 생기면서 위는 시럽, 아래는 커스터드가 된다.
    층을 따로 그리지 않고 같은 덩어리로 두기 때문에 이음매가 없다.
 
-   경계는 방위각을 따라 도는 물결이다. 주기가 다른 세 개를 섞어 규칙적으로
-   보이지 않게 했다. 눈 위(0.545)보다 아래로 내려가지 않도록 폭을 잡았다.
+   귀도 같이 부풀린다(sdBodyEars). 처음엔 몸통만 덮었는데, 귀만 시럽
+   밖으로 솟아 있으면 붓다 만 것처럼 부자연스럽다. 시럽은 위에서 부으면
+   귀에도 묻는다.
 
-   귀는 부풀리지 않는다(sdBody 만 쓴다). 귀까지 덮으면 시럽을 뒤집어쓴
-   모양이 되는데, 귀가 시럽 위로 솟아 있는 쪽이 푸딩답다. */
+   모드는 세 가지다.
+     1 머리   정수리에서 얼굴 위까지. 옆으로 흘러내린다
+     2 전체   밑동 근처까지 통째로. 캐러멜을 씌운 푸딩
+     3 접시   푸딩에는 안 묻히고 접시에 웅덩이로 깐다 (아래 sdSyrupPool) */
 const float SY_COAT = 0.030;   // 시럽 두께
 
 /* 흘러내린 경계선.
@@ -529,13 +532,18 @@ float syrupEdge(vec3 q){
   drop = max(drop, dripTongue(a,  3.05, 0.28, 0.125));
   drop *= smoothstep(0.02, 0.30, r);                     // 꼭대기에서는 혀 없음
 
-  float base = 0.672;
-  float amp  = (uSyrup < 1.5) ? 1.000 : 0.170;           // 웅덩이는 거의 안 흐른다
+  // 머리 모드는 얼굴 위에서 끊고 길게 흘러내린다.
+  // 전체 모드는 밑동 근처가 경계라 혀가 길 필요가 없다.
+  float base = (uSyrup < 1.5) ? 0.672 : 0.230;
+  float amp  = (uSyrup < 1.5) ? 1.000 : 0.280;
   return ((base - drop*amp) - q.y)/3.2;                  // <=0 이면 경계보다 위
 }
 
-float sdSyrup(vec3 q){
-  if(uSyrup < 0.5) return 1e5;
+/* 몸통+귀 거리장을 이미 계산해 둔 곳에서만 부르도록 인자로 받는다.
+   여기서 다시 sdBodyEars 를 부르면 레이마칭 한 걸음마다 귀를 두 번
+   계산하게 되어 눈에 띄게 느려진다. */
+float sdSyrup(vec3 q, float dBodyEars){
+  if(uSyrup < 0.5 || uSyrup > 2.5) return 1e5;      // 접시 모드는 푸딩에 안 묻는다
   float e = syrupEdge(q);
   /* 층의 두께를 자리마다 다르게 준다 — 흘러내린 끝은 0 에서 시작해
      안쪽으로 0.030 쯤 들어가면 제 두께가 된다. 시럽은 가장자리가 얇게
@@ -543,16 +551,29 @@ float sdSyrup(vec3 q){
      두께가 위치에 따라 변하므로 거리장의 기울기가 1 을 넘는다.
      마지막에 나눠서 과대평가를 막는다. */
   float coat = SY_COAT*smoothstep(0.0, 0.030, -e*3.2);
-  return smax(sdBody(q) - coat, e, 0.014)/1.35;
+  return smax(dBodyEars - coat, e, 0.014)/1.35;
 }
 
 /* 시럽을 칠할 자리. 표면의 그 점을 어느 덩어리가 만들었는지로 가른다 —
    시럽 쪽 거리가 몸통 쪽보다 작으면 시럽이다. 두 거리장의 '차'를 보므로
    타원체 근사 오차가 서로 상쇄돼, 절대값으로 자를 때 생기던 줄무늬
    (0.01 짜리 경계를 근사 오차가 넘나들며 켜졌다 꺼졌다 하던 것)가 없다. */
-float syrupInk(vec3 q){
+float syrupInk(vec3 q, float dBodyEars){
   if(uSyrup < 0.5) return 1e5;
-  return sdSyrup(q) - sdBodyEars(q);
+  return sdSyrup(q, dBodyEars) - dBodyEars;
+}
+
+/* 접시에 깔린 시럽. 푸딩과 붙지 않는 별개의 덩어리라 재질도 따로 쓴다.
+   얕은 원반의 테두리를 방위각 물결로 흔들었다. 반지름이 0.86 쯤이라
+   1/r 이 1.2 를 넘지 않아 축 근처 발산 문제가 없다. */
+float sdSyrupPool(vec3 p){
+  if(uSyrup < 2.5) return 1e5;
+  float a  = atan(p.z, p.x);
+  float rr = 0.855 + 0.075*sin(3.0*a + 0.6)
+                   + 0.045*sin(5.0*a + 2.1)
+                   + 0.028*sin(8.0*a + 4.0);
+  vec2 d = vec2(length(p.xz) - rr, abs(p.y - 0.014) - 0.009);
+  return (min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - 0.009)/1.5;
 }
 
 float sdCatPudding(vec3 p){
@@ -560,7 +581,7 @@ float sdCatPudding(vec3 p){
   vec3 q  = sp.xyz;
 
   float d = sdBodyEars(q);
-  d = sminExp(d, sdSyrup(q), 0.010);
+  d = sminExp(d, sdSyrup(q, d), 0.010);
 
   // 얼굴을 미세하게 파낸다 (모서리 없이).
   d = opSmoothSub(faceInk(q, d), d, 0.017);
@@ -586,6 +607,9 @@ vec2 map(vec3 p){
   float plate = smin(sdDisc(p - vec3(0.0, -0.012, 0.0), 1.294, 0.010) - 0.006,
                      sdDisc(p - vec3(0.0, -0.040, 0.0), 1.154, 0.014) - 0.006, 0.03);
   if(plate < res.x) res = vec2(plate, 1.0);
+
+  float pool = sdSyrupPool(p);
+  if(pool < res.x) res = vec2(pool, 2.0);
   return res;
 }
 
@@ -742,7 +766,8 @@ void main(){
            · 경계에서 멀수록 두껍다 — 흘러내린 끝이 얇게 사라진다
            · 비스듬히 볼수록 두껍다 — 빛이 층을 길게 지나가므로(1/cos)
              가장자리가 저절로 진해진다. 유리질로 보이는 건 거의 이 항 덕이다. */
-      float sm = 1.0 - smoothstep(-0.003, 0.007, syrupInk(q));
+      float dBE = sdBodyEars(q);
+      float sm = 1.0 - smoothstep(-0.003, 0.007, syrupInk(q, dBE));
       wet = sm;
       if(sm > 0.001){
         vec3  tint  = pow(uSyrupCol, vec3(2.2));
@@ -753,14 +778,20 @@ void main(){
         base = mix(base, base*trans + tint*0.16*thick, sm);
       }
 
-      float ink  = faceInk(q, sdBodyEars(q));
+      float ink  = faceInk(q, dBE);
       float mask = 1.0 - smoothstep(0.0, 0.012, ink);
       base = mix(base, pow(uInk, vec3(2.2)), mask);
       gloss = (1.0 - mask*0.55)*(1.0 + sm*0.60);
       envAmt = 0.16 + sm*0.22;
-    } else {
+    } else if(hit.y < 1.5){
       base = pow(uPlate, vec3(2.2));                   // 도자기
       gloss = 0.55; envAmt = 0.10;
+    } else {
+      // 접시 위의 시럽. 얕게 깔려서 접시의 흰색이 비쳐 올라온다.
+      vec3 tint = pow(uSyrupCol, vec3(2.2));
+      base  = pow(uPlate, vec3(2.2))*pow(max(tint, vec3(0.02)), vec3(0.9)) + tint*0.18;
+      gloss = 2.6; envAmt = 0.30;
+      wet   = 1.0;
     }
 
     vec3 lin = vec3(0.0);
