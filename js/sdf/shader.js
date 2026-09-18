@@ -484,31 +484,65 @@ float sdBodyEars(vec3 q){
    모양이 되는데, 귀가 시럽 위로 솟아 있는 쪽이 푸딩답다. */
 const float SY_COAT = 0.030;   // 시럽 두께
 
-/* 흘러내린 경계선. 처음엔 방위각 atan(z,x) 의 물결로 썼는데, 그러면
-   x,z 로 미분할 때 1/r 이 붙어 축 근처에서 기울기가 발산한다. 레이마칭이
-   표면을 뚫고 지나가 시럽에 동심원 줄무늬가 생겼다. 그래서 각도 대신
-   x,z 자체의 사인을 섞는다 — 기울기가 어디서나 유한하다(합 0.094·주파수
-   ≈ 0.53, 전체 |∇| ≤ 1.14). 마지막에 1.8 로 나눠 여유를 둔다.
+/* 흘러내린 경계선.
 
-   폭은 눈 위(0.545)를 침범하지 않게 잡았다: 0.556 ~ 0.724. */
+   처음엔 sin 을 여러 개 섞어 썼는데 그러면 절대 시럽이 안 된다. sin 은
+   위로도 똑같이 물결쳐서 가리비 무늬가 될 뿐이고, 진폭을 키워도 파도만
+   커진다. 흘러내림은 '아래로만, 좁게, 길이가 제각각인 혀' 다.
+
+   그래서 경계 높이를 '기본 높이 − 혀들 중 가장 깊은 것' 으로 만든다.
+   혀 하나는 중심각 ac, 폭 w, 길이 len 의 봉우리다.
+       t = |각도차|/w        (1 을 넘으면 그 혀의 영향 밖)
+       깊이 = len·(1−t²)²
+   (1−t²)² 는 가장자리에서 값과 기울기가 둘 다 0 이라, 혀가 시작되는
+   자리에 각이 서지 않는다. 제곱을 한 번 더 하는 것이 핵심 — 안 하면
+   혀가 아니라 넓은 골이 된다.
+
+   기울기: 각도로 미분하면 1/r 이 붙어 축 근처에서 발산하므로, 안쪽
+   (r < 0.30) 에서는 혀를 0 으로 재운다. 시럽이 붙는 자리는 r ≥ 0.35 라
+   보이는 모양은 그대로다. 남는 기울기는 len/w 의 최대(≈0.66/0.20)를
+   r=0.30 으로 나눈 값이라 3.2 로 나눠 여유를 둔다.
+
+   정면(각 1.0~2.15 = 얼굴)에는 짧은 혀만 둔다. 긴 혀가 내려오면 눈 위
+   0.545 를 넘어 얼굴을 덮는다. */
+
+float dripTongue(float a, float ac, float w, float len){
+  float d = a - ac;
+  d -= 6.2831853*floor(d*0.1591549 + 0.5);       // -π..π 로 접기
+  float t = min(abs(d)/w, 1.0);
+  float bump = 1.0 - t*t;
+  return len*bump*bump;
+}
+
 float syrupEdge(vec3 q){
-  float w = 0.036*sin(6.1*q.x + 1.0)
-          + 0.028*sin(5.3*q.z + 2.3)
-          + 0.020*sin(4.2*(q.x + q.z) + 4.1);
-  float base = (uSyrup < 1.5) ? 0.640 : 0.700;   // 흘러내림 / 웅덩이
-  float amp  = (uSyrup < 1.5) ? 1.000 : 0.450;
-  return ((base + w*amp) - q.y)/1.8;             // <=0 이면 경계보다 위
+  float r = length(q.xz);
+  float a = atan(q.z, q.x);
+
+  float drop = 0.0;
+  drop = max(drop, dripTongue(a, -2.85, 0.42, 0.265));
+  drop = max(drop, dripTongue(a, -2.05, 0.30, 0.150));
+  drop = max(drop, dripTongue(a, -1.25, 0.46, 0.225));
+  drop = max(drop, dripTongue(a, -0.45, 0.32, 0.110));
+  drop = max(drop, dripTongue(a,  0.35, 0.40, 0.205));
+  drop = max(drop, dripTongue(a,  1.55, 0.50, 0.055));   // 정면 — 얼굴을 피해 짧게
+  drop = max(drop, dripTongue(a,  2.55, 0.36, 0.180));
+  drop = max(drop, dripTongue(a,  3.05, 0.28, 0.125));
+  drop *= smoothstep(0.02, 0.30, r);                     // 꼭대기에서는 혀 없음
+
+  float base = 0.672;
+  float amp  = (uSyrup < 1.5) ? 1.000 : 0.170;           // 웅덩이는 거의 안 흐른다
+  return ((base - drop*amp) - q.y)/3.2;                  // <=0 이면 경계보다 위
 }
 
 float sdSyrup(vec3 q){
   if(uSyrup < 0.5) return 1e5;
   float e = syrupEdge(q);
   /* 층의 두께를 자리마다 다르게 준다 — 흘러내린 끝은 0 에서 시작해
-     안쪽으로 0.055 쯤 들어가면 제 두께가 된다. 시럽은 가장자리가 얇게
+     안쪽으로 0.030 쯤 들어가면 제 두께가 된다. 시럽은 가장자리가 얇게
      사라지지, 두께가 일정한 뚜껑처럼 뚝 끊기지 않는다.
      두께가 위치에 따라 변하므로 거리장의 기울기가 1 을 넘는다.
      마지막에 나눠서 과대평가를 막는다. */
-  float coat = SY_COAT*smoothstep(0.0, 0.055, -e*1.8);
+  float coat = SY_COAT*smoothstep(0.0, 0.030, -e*3.2);
   return smax(sdBody(q) - coat, e, 0.014)/1.35;
 }
 
@@ -712,8 +746,8 @@ void main(){
       wet = sm;
       if(sm > 0.001){
         vec3  tint  = pow(uSyrupCol, vec3(2.2));
-        float edge  = -syrupEdge(q)*1.8;                    // 경계에서 0, 안쪽이 +
-        float thick = mix(0.30, 1.0, smoothstep(0.0, 0.055, edge));
+        float edge  = -syrupEdge(q)*3.2;                    // 경계에서 0, 안쪽이 +
+        float thick = mix(0.45, 1.0, smoothstep(0.0, 0.040, edge));
         thick /= max(dot(n, -rd), 0.30);
         vec3  trans = pow(max(tint, vec3(0.015)), vec3(thick*1.25));
         base = mix(base, base*trans + tint*0.16*thick, sm);
