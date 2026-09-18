@@ -11,11 +11,19 @@
   var ANIMALS = ['고양이', '강아지', '토끼', '롭이어', '곰', '쥐', '여우', '햄스터'];
   var EYES    = ['동글', '올라간', '내려간', '반', '웃는'];
   var MOUTHS  = ['ω', '^', '一', '웃는'];
-  var SYRUPS  = ['없음', '머리', '전체', '접시'];
+
+  // 꾸미기는 서로 배타적이지 않다 — 체리와 생크림을 같이 올릴 수 있다.
+  // 그래서 하나만 고르는 chip 이 아니라 각자 켜고 끄는 토글이다.
+  var TOPPINGS = [
+    { key: 'syrup',    label: '시럽 웅덩이' },
+    { key: 'cherry',   label: '체리' },
+    { key: 'cream',    label: '생크림' },
+    { key: 'sprinkle', label: '스프링클' }
+  ];
 
   // 고르기 쉬우라고 두는 기본 색. 색동그라미 말고 옆의 버튼을 누르면
   // 아무 색이나 직접 고를 수 있다.
-  // 눈·시럽 목록은 2D 판(js/parts/eyes.js, js/parts/syrup.js)과 같은 색이다.
+  // 눈 목록은 2D 판(js/parts/eyes.js)과 같은 색이다.
   var SWATCHES = {
     body:     ['#f6e7c7', '#f8d3d8', '#d7e7bf', '#e0bb93', '#cfe4f0', '#ddd0ee', '#fbeaa8', '#d8cfc8'],
     ink:      ['#675347', '#3a2f2a', '#4a6fb0', '#7a5aa8', '#c0566a', '#3f8a63'],
@@ -124,6 +132,30 @@
     };
   }
 
+  /* 서로 배타적이지 않은 켜고 끄는 토글. 값은 scene[key] 에 0/1 로 들어간다
+     (셰이더가 float 로 uSyrup/uCherry/uCream/uSprinkle 을 받으므로 그대로 넘긴다). */
+  function buildToggles(hostId, items) {
+    var host = document.getElementById(hostId);
+    var buttons = items.map(function (item) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = item.label;
+      b.addEventListener('click', function () {
+        scene[item.key] = scene[item.key] ? 0 : 1;
+        sync();
+        bounce();
+      });
+      host.appendChild(b);
+      return { el: b, key: item.key };
+    });
+    return function () {
+      buttons.forEach(function (b) {
+        b.el.setAttribute('aria-pressed', scene[b.key] ? 'true' : 'false');
+      });
+    };
+  }
+
   function buildColors() {
     var host = document.getElementById('colors');
     var refresh = [];
@@ -176,7 +208,7 @@
     buildChips('animals', ANIMALS, 'animal'),
     buildChips('eyes', EYES, 'eye'),
     buildChips('mouths', MOUTHS, 'mouth'),
-    buildChips('syrups', SYRUPS, 'syrup'),
+    buildToggles('toppings', TOPPINGS),
     buildColors()
   ];
   function sync() { refreshers.forEach(function (f) { f(); }); }
@@ -187,7 +219,8 @@
     scene.animal = Math.floor(Math.random() * ANIMALS.length);
     scene.eye    = Math.floor(Math.random() * EYES.length);
     scene.mouth  = Math.floor(Math.random() * MOUTHS.length);
-    scene.syrup  = Math.floor(Math.random() * SYRUPS.length);
+    // 꾸미기는 다 같이 켜면 정신없으니 하나씩 확률을 낮게 둔다.
+    TOPPINGS.forEach(function (t) { scene[t.key] = Math.random() < 0.32 ? 1 : 0; });
     COLOR_ROWS.forEach(function (row) { scene[row.key] = pick(SWATCHES[row.key]); });
     sync();
     bounce();

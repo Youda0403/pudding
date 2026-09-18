@@ -25,8 +25,11 @@ uniform float uAnimal;   // 0 고양이 1 강아지 2 토끼 3 롭이어 4 곰 5
 // 색은 전부 sRGB(0~1). 조명에 넣기 전에 선형으로 바꾼다.
 uniform vec3  uBody;     // 커스터드 색
 uniform vec3  uInk;      // 눈·입 색
-uniform vec3  uSyrupCol; // 시럽 색
-uniform float uSyrup;    // 0 없음 / 1 머리 / 2 전체 / 3 접시
+uniform vec3  uSyrupCol; // 시럽(웅덩이) 색
+uniform float uSyrup;    // 0 없음 / 1 접시에 웅덩이
+uniform float uCherry;   // 0/1 체리
+uniform float uCream;    // 0/1 생크림
+uniform float uSprinkle; // 0/1 스프링클
 uniform vec3  uPlate;    // 접시 색
 uniform vec3  uBg;       // 배경 색
 
@@ -135,6 +138,13 @@ float sdRoundCone(vec3 p, vec3 a, vec3 b, float r1, float r2){
 // 끝이 둥근 선분 (얼굴 자국의 한 획). 정면에서 본 2D 모양이라 xy 평면에서 쓴다.
 float sdCapsule2(vec2 p, vec2 a, vec2 b, float r){
   vec2 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba)/dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba*h) - r;
+}
+
+// 위와 같은 모양의 3D 판. 체리 꼭지 같은 가는 줄기에 쓴다.
+float sdCapsule3(vec3 p, vec3 a, vec3 b, float r){
+  vec3 pa = p - a, ba = b - a;
   float h = clamp(dot(pa, ba)/dot(ba, ba), 0.0, 1.0);
   return length(pa - ba*h) - r;
 }
@@ -470,96 +480,113 @@ float sdBodyEars(vec3 q){
 }
 
 /* ---------------------------------------------------------------------
-   6.5 시럽
+   6.5 토핑 — 체리 · 생크림 · 스프링클
 
-   시럽은 형태를 만들지 않는다. 색과 광택만 얹는다.
+   전부 정수리 CROWN = (0, 0.835, 0) 위에 얹는다. 0.835 는 몸통(sdBody)
+   혼자 정하는 높이라(귀는 좌우로 벌어져 있어 x=0 을 절대 건드리지 않는다)
+   동물이 달라져도, 심지어 고양이·여우처럼 귀가 가운데로 모이는 경우에도
+   그 자리는 늘 비어 있는 몸통 표면이다 — 두 귀 사이 골의 바닥이 바로
+   그 자리라고 4번 절에서 이미 재 두었다.
 
-   처음엔 푸딩을 두께만큼 부풀린 '층' 을 만들어 경계에서 잘라 붙였다.
-   그러면 잘린 자리에 둥근 턱이 생기는데, 액체엔 그런 테두리가 없다.
-   접시에 부은 시럽은 가장자리가 그냥 0 으로 사라지지, 테를 두르지 않는다.
-   두께를 아무리 줄여도 자른 자리는 남으므로 층 자체를 없앴다.
+   몸통에 합칠 때는 재료마다 다른 k 를 쓴다. 체리는 얹힌 것이지 녹아든
+   것이 아니므로 작게, 생크림은 짜 올린 반죽이 밑에서 몸통과 이어지므로
+   크게. 셋 다 sminExp 라 곡률이 끊기는 자리는 없다. */
+const vec3  CROWN   = vec3(0.0, 0.835, 0.0);
+const float CREAM_H = 0.165;   // 생크림 정점까지 높이 — 체리를 그 위에 얹을 때 쓴다
 
-   그래서 남은 건 '어디까지 젖었는가' 하나뿐이다(syrupEdge). 그 안쪽을
-   투과율로 칠하고(Beer-Lambert) 젖은 광택을 얹으면 액체로 보인다.
-   실루엣이 안 변하는 것도 맞다 — 얇게 흐른 액체는 윤곽을 바꾸지 않는다.
+/* 생크림. 크기가 줄어드는 구 네 개를 살짝 어긋나게 쌓아 감아 올라가는
+   소용돌이를 낸다. 층마다 다른 방향으로 어긋나야 나선으로 보인다 —
+   전부 같은 방향으로 쌓으면 그냥 삐뚤어진 원뿔이 된다.
 
-   모드는 세 가지다.
-     1 머리   정수리에서 얼굴 위까지. 옆으로 흘러내린다
-     2 전체   밑동 근처까지 통째로. 캐러멜을 씌운 푸딩
-     3 접시   푸딩에는 안 묻히고 접시에 웅덩이로 깐다 (아래 sdSyrupPool) */
-
-/* 흘러내린 경계선.
-
-   처음엔 sin 을 여러 개 섞어 썼는데 그러면 절대 시럽이 안 된다. sin 은
-   위로도 똑같이 물결쳐서 가리비 무늬가 될 뿐이고, 진폭을 키워도 파도만
-   커진다. 흘러내림은 '아래로만, 좁게, 길이가 제각각인 혀' 다.
-
-   그래서 경계 높이를 '기본 높이 − 혀들 중 가장 깊은 것' 으로 만든다.
-   혀 하나는 중심각 ac, 폭 w, 길이 len 의 봉우리다.
-       t = |각도차|/w        (1 을 넘으면 그 혀의 영향 밖)
-       깊이 = len·(1−t²)²
-   (1−t²)² 는 가장자리에서 값과 기울기가 둘 다 0 이라, 혀가 시작되는
-   자리에 각이 서지 않는다. 제곱을 한 번 더 하는 것이 핵심 — 안 하면
-   혀가 아니라 넓은 골이 된다.
-
-   각도로 미분하면 1/r 이 붙어 축 근처에서 값이 요동치므로, 안쪽
-   (r < 0.30) 에서는 혀를 0 으로 재운다. 시럽이 붙는 자리는 r ≥ 0.35 라
-   보이는 모양은 그대로다. 마지막에 3.2 로 나누는 것은 층을 거리장으로
-   쓰던 때의 기울기 보정이 남은 것이다. 지금은 색 마스크로만 쓰므로
-   값의 크기는 상관없고, 두께를 계산하는 쪽에서 3.2 를 도로 곱한다.
-
-   정면(각 1.0~2.15 = 얼굴)에는 짧은 혀만 둔다. 긴 혀가 내려오면 눈 위
-   0.545 를 넘어 얼굴을 덮는다. */
-
-float dripTongue(float a, float ac, float w, float len){
-  float d = a - ac;
-  d -= 6.2831853*floor(d*0.1591549 + 0.5);       // -π..π 로 접기
-  float t = min(abs(d)/w, 1.0);
-  float bump = 1.0 - t*t;
-  return len*bump*bump;
+   처음엔 층마다 위로 많이 띄워서 뾰족한 창처럼 솟았다 — 높이는 몸통과
+   비슷한데 폭은 그 1/5 이라 가늘게만 보였다. 짜 올린 반죽은 높이보다
+   폭이 넓어야 '덩어리' 로 읽힌다. 그래서 밑동을 크고 낮게, 층마다 위로
+   가는 양을 줄여 전체를 낮고 통통하게 눌렀다. */
+float sdCream(vec3 q){
+  if(uCream < 0.5) return 1e5;
+  vec3  p0 = CROWN + vec3(0.0, 0.014, 0.0);
+  float d  = sdSphere(q - p0, 0.145);
+  vec3  p1 = p0 + vec3( 0.032, 0.052, -0.015);
+  d = smin(d, sdSphere(q - p1, 0.105), 0.036);
+  vec3  p2 = p1 + vec3(-0.027, 0.044,  0.022);
+  d = smin(d, sdSphere(q - p2, 0.072), 0.028);
+  vec3  p3 = p2 + vec3( 0.011, 0.036, -0.016);
+  d = smin(d, sdSphere(q - p3, 0.038), 0.020);
+  return d;
 }
 
-float syrupEdge(vec3 q){
-  float r = length(q.xz);
-  float a = atan(q.z, q.x);
-
-  float drop = 0.0;
-  drop = max(drop, dripTongue(a, -2.85, 0.42, 0.265));
-  drop = max(drop, dripTongue(a, -2.05, 0.30, 0.150));
-  drop = max(drop, dripTongue(a, -1.25, 0.46, 0.225));
-  drop = max(drop, dripTongue(a, -0.45, 0.32, 0.110));
-  drop = max(drop, dripTongue(a,  0.35, 0.40, 0.205));
-  drop = max(drop, dripTongue(a,  1.55, 0.50, 0.055));   // 정면 — 얼굴을 피해 짧게
-  drop = max(drop, dripTongue(a,  2.55, 0.36, 0.180));
-  drop = max(drop, dripTongue(a,  3.05, 0.28, 0.125));
-  drop *= smoothstep(0.02, 0.30, r);                     // 꼭대기에서는 혀 없음
-
-  // 머리 모드는 얼굴 위에서 끊고 길게 흘러내린다.
-  // 전체 모드는 밑동 근처가 경계라 혀가 길 필요가 없다.
-  float base = (uSyrup < 1.5) ? 0.672 : 0.230;
-  float amp  = (uSyrup < 1.5) ? 1.000 : 0.280;
-  return ((base - drop*amp) - q.y)/3.2;                  // <=0 이면 경계보다 위
+/* 체리. 구 하나 + 가는 줄기 하나. 둘을 색칠할 때는 따로 알아야 하므로
+   geometry 용 합친 값과, 색칠용 각 부위 값을 나눠 둔다.
+   생크림이 있으면 그 꼭대기에, 없으면 정수리에 바로 앉는다. */
+vec3 cherryCenter(){
+  return CROWN + vec3(0.0, (uCream > 0.5 ? CREAM_H : 0.0) + 0.036, 0.0);
+}
+float sdCherryBody(vec3 q){
+  if(uCherry < 0.5) return 1e5;
+  return sdSphere(q - cherryCenter(), 0.052);
+}
+float sdCherryStem(vec3 q){
+  if(uCherry < 0.5) return 1e5;
+  vec3 c  = cherryCenter();
+  vec3 s0 = c + vec3(0.0, 0.044, 0.0);
+  vec3 s1 = s0 + vec3(0.030, 0.068, -0.014);
+  return sdCapsule3(q, s0, s1, 0.008);
+}
+float sdCherry(vec3 q){
+  return smin(sdCherryBody(q), sdCherryStem(q), 0.010);
 }
 
-/* 시럽이 묻은 자리. <=0 이면 시럽이다.
-   예전엔 '층 거리장 − 몸통 거리장' 으로 갈랐는데, 층을 없앴으니
-   젖은 경계 그 자체가 곧 답이다. */
-float syrupInk(vec3 q){
-  if(uSyrup < 0.5 || uSyrup > 2.5) return 1e5;   // 접시 모드는 푸딩에 안 묻는다
-  return syrupEdge(q);
+/* 스프링클. 작은 구 여섯 개를 이마에 흩어 놓는다.
+
+   처음엔 체리·생크림과 같은 정수리 자리를 썼다. 그런데 그 자리는 이미
+   좁아서(귀 두 개가 좌우에서 조이는 자리다) 생크림을 켜면 넓은 밑동에
+   전부 먹히고, 생크림 없이도 귀가 가까운 동물(고양이·여우)에서는 귀에
+   먹혔다. 그래서 자리를 옮겼다 — onFace() 로 이마(눈 위, 정수리 아래)의
+   몸통 표면에 직접 앉힌다. 얼굴 자국과 같은 함수라 어느 동물이든 정확히
+   표면 위에 놓이고, 체리·생크림과도, 귀와도 자리가 겹치지 않는다.
+
+   서로 겹치지 않게 떨어뜨려 두었으므로(각자 반지름의 두 배보다 멀다)
+   min() 으로 합쳐도 이음매가 생기지 않는다 — 몸통과 만나는 자리에서만
+   sminExp 로 녹인다. */
+float sdSprinkles(vec3 q){
+  if(uSprinkle < 0.5) return 1e5;
+  vec3 c0 = onFace(vec2( 0.150, 0.660), 0.010);
+  vec3 c1 = onFace(vec2(-0.130, 0.700), 0.009);
+  vec3 c2 = onFace(vec2( 0.010, 0.730), 0.010);
+  vec3 c3 = onFace(vec2(-0.235, 0.615), 0.009);
+  vec3 c4 = onFace(vec2( 0.245, 0.600), 0.009);
+  vec3 c5 = onFace(vec2(-0.040, 0.590), 0.010);
+  float d = 1e5;
+  d = min(d, sdSphere(q - c0, 0.017));
+  d = min(d, sdSphere(q - c1, 0.016));
+  d = min(d, sdSphere(q - c2, 0.017));
+  d = min(d, sdSphere(q - c3, 0.015));
+  d = min(d, sdSphere(q - c4, 0.015));
+  d = min(d, sdSphere(q - c5, 0.016));
+  return d;
 }
 
-/* 접시에 깔린 시럽. 푸딩과 붙지 않는 별개의 덩어리라 재질도 따로 쓴다.
-   얕은 원반의 테두리를 방위각 물결로 흔들었다. 반지름이 0.86 쯤이라
-   1/r 이 1.2 를 넘지 않아 축 근처 발산 문제가 없다. */
-float sdSyrupPool(vec3 p){
-  if(uSyrup < 2.5) return 1e5;
+/* ---------------------------------------------------------------------
+   6.6 접시 웅덩이
+
+   덩어리를 만들지 않는다. 순전히 칠하는 값이다 — 그래서 테두리가 생길
+   수가 없다. 처음엔 얕은 원반(sdDisc 변형)을 접시 위에 얹었는데, 판이
+   두께를 가지는 한 가장자리에는 반드시 모서리(테두리)가 생긴다. 둥글게
+   굴려도 '테를 두른 웅덩이' 로 보이지, 액체로는 안 보였다.
+
+   그래서 지오메트리를 아예 없앴다. 접시 표면에 닿은 그 점이 웅덩이
+   반경 안이면 커스터드에 시럽을 칠했던 것과 같은 방법(Beer-Lambert)으로
+   접시 색 위에 시럽색을 얇게 얹는다 — 투명하고, 두께가 0 인 판이니
+   솟아오른 모서리 자체가 있을 수 없다. 가장자리는 smoothstep 하나로
+   부드럽게 사라진다. */
+float syrupPoolMask(vec3 p){
+  if(uSyrup < 0.5) return 0.0;
   float a  = atan(p.z, p.x);
-  float rr = 0.855 + 0.075*sin(3.0*a + 0.6)
-                   + 0.045*sin(5.0*a + 2.1)
-                   + 0.028*sin(8.0*a + 4.0);
-  vec2 d = vec2(length(p.xz) - rr, abs(p.y - 0.014) - 0.009);
-  return (min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - 0.009)/1.5;
+  float rr = 0.760 + 0.058*sin(3.0*a + 0.6)
+                    + 0.032*sin(5.0*a + 2.1)
+                    + 0.018*sin(8.0*a + 4.0);
+  float r  = length(p.xz);
+  return 1.0 - smoothstep(rr - 0.045, rr, r);
 }
 
 float sdCatPudding(vec3 p){
@@ -567,6 +594,12 @@ float sdCatPudding(vec3 p){
   vec3 q  = sp.xyz;
 
   float d = sdBodyEars(q);
+
+  // 정수리 위 토핑. 생크림은 밑에서부터 짜 올라간 반죽이니 몸통과 크게
+  // 녹이고, 체리·스프링클은 위에 얹힌 것이니 작게 녹인다.
+  d = sminExp(d, sdCream(q), 0.040);
+  d = sminExp(d, sdSprinkles(q), 0.006);
+  d = sminExp(d, sdCherry(q), 0.012);
 
   // 얼굴을 미세하게 파낸다 (모서리 없이).
   d = opSmoothSub(faceInk(q, d), d, 0.017);
@@ -582,7 +615,9 @@ float sdCatPudding(vec3 p){
 }
 
 /* ---------------------------------------------------------------------
-   8. 장면 — x: 거리, y: 재질(0 푸딩, 1 접시)
+   8. 장면 — x: 거리, y: 재질(0 푸딩, 1 접시 — 접시 위 웅덩이는 지오메트리가
+      없으므로 재질 번호를 새로 쓰지 않는다. 셰이딩 단계에서 접시 표면에
+      바로 색을 칠한다)
    --------------------------------------------------------------------- */
 vec2 map(vec3 p){
   vec2 res = vec2(sdCatPudding(p), 0.0);
@@ -592,9 +627,6 @@ vec2 map(vec3 p){
   float plate = smin(sdDisc(p - vec3(0.0, -0.012, 0.0), 1.294, 0.010) - 0.006,
                      sdDisc(p - vec3(0.0, -0.040, 0.0), 1.154, 0.014) - 0.006, 0.03);
   if(plate < res.x) res = vec2(plate, 1.0);
-
-  float pool = sdSyrupPool(p);
-  if(pool < res.x) res = vec2(pool, 2.0);
   return res;
 }
 
@@ -717,7 +749,7 @@ void main(){
     float spe2 = pow(clamp(dot(n, hal), 0.0, 1.0), 28.0);
 
     vec3 base; float gloss, envAmt;
-    float wet = 0.0;              // 시럽이 덮인 정도 (반짝임에 쓴다)
+    float wet = 0.0;              // 젖어서 하이라이트가 세지는 정도
 
     if(hit.y < 0.5){
       // 커스터드. 지정 색은 sRGB 라서 선형으로 바꿔 조명에 넣는다.
@@ -732,6 +764,7 @@ void main(){
       // 파낸 얼굴 자국에 색을 얹는다. 형태를 만든 것과 같은 거리장을 쓰므로
       // 색과 굴곡이 정확히 같은 자리에 온다.
       vec3  q    = puddingSpace(p).xyz;
+      float dBE  = sdBodyEars(q);
 
       // 귓바퀴. 홈을 판 것과 같은 거리장을 쓰므로 색과 굴곡이 같은 자리에 온다.
       // 얇은 귀(토끼·쥐)는 홈이 깊어질 수 없어서, 색이 있어야 비로소 귀로 읽힌다.
@@ -740,43 +773,57 @@ void main(){
       // vec3(0.930,0.788,0.734) 이 나오는 비율이다 — 조금 어둡고 붉게.
       base = mix(base, pow(uBody*vec3(0.964, 0.871, 0.941), vec3(2.2)), em*0.88);
 
-      /* 시럽. 색을 덮어 칠하면 모자가 된다. 시럽은 '덮개' 가 아니라
-         '통과시키는 층' 이라, 아래의 커스터드가 비쳐 보이고 두꺼운 곳일수록
-         색이 진해져야 한다. 그래서 Beer-Lambert 로 칠한다.
+      /* 토핑 색칠 구간은 각자의 sminExp 블렌드 k 보다 넓게 잡는다.
+         몸통과 녹아 붙는 목(neck) 구간에서는 표면이 토핑의 raw SDF=0
+         보다 한참 앞에서 이미 시작되므로, 문턱을 k 근처의 폭보다 좁게
+         잡으면(전엔 0.010 이었다) 눈에 보이는 덩어리의 아랫단은 색이
+         하나도 안 묻은 '몸통 색 그대로인 혹' 으로 남는다. */
 
-           나온 빛 = 아래 색 × 투과율 + 시럽 자체가 되쏘는 빛
-           투과율  = 시럽색 ^ 두께      (두꺼울수록 지수적으로 어두워진다)
+      // 생크림 — 밝고 살짝 푸른 흰 반죽. 노란 커스터드와 대비가 커야
+      // '흰 크림' 으로 읽힌다.
+      float cm = 1.0 - smoothstep(0.0, 0.056, sdCream(q));
+      base  = mix(base, pow(vec3(0.995, 0.985, 0.975), vec3(2.2)), cm);
 
-         두께는 두 가지로 만든다.
-           · 경계에서 멀수록 두껍다 — 흘러내린 끝이 얇게 사라진다
-           · 비스듬히 볼수록 두껍다 — 빛이 층을 길게 지나가므로(1/cos)
-             가장자리가 저절로 진해진다. 유리질로 보이는 건 거의 이 항 덕이다. */
-      float dBE = sdBodyEars(q);
-      float sm = 1.0 - smoothstep(-0.0030, 0.0030, syrupInk(q));
-      wet = sm;
-      if(sm > 0.001){
-        vec3  tint  = pow(uSyrupCol, vec3(2.2));
-        float edge  = -syrupEdge(q)*3.2;                    // 젖은 경계에서 0, 안쪽이 +
-        float thick = mix(0.45, 1.0, smoothstep(0.0, 0.040, edge));
-        thick /= max(dot(n, -rd), 0.30);
-        vec3  trans = pow(max(tint, vec3(0.015)), vec3(thick*1.25));
-        base = mix(base, base*trans + tint*0.16*thick, sm);
-      }
+      // 스프링클 — 위치로 세 가지 색을 번갈아 고른다(알마다 좌표가 다르므로).
+      float sp    = 1.0 - smoothstep(0.0, 0.011, sdSprinkles(q));
+      float spHue = mod(floor((q.x + q.z)*37.0), 3.0);
+      vec3  spCol = spHue < 0.5 ? vec3(0.86, 0.20, 0.24)
+                  : spHue < 1.5 ? vec3(0.96, 0.78, 0.20)
+                  :               vec3(0.30, 0.55, 0.86);
+      base  = mix(base, pow(spCol, vec3(2.2)), sp);
+
+      // 체리 — 몸통은 광택 있는 빨강, 줄기는 매트한 초록.
+      float chB = 1.0 - smoothstep(0.0, 0.017, sdCherryBody(q));
+      float chS = 1.0 - smoothstep(0.0, 0.011, sdCherryStem(q));
+      base  = mix(base, pow(vec3(0.78, 0.075, 0.115), vec3(2.2)), chB);
+      base  = mix(base, pow(vec3(0.36, 0.42, 0.16), vec3(2.2)), chS);
 
       float ink  = faceInk(q, dBE);
       float mask = 1.0 - smoothstep(0.0, 0.012, ink);
       base = mix(base, pow(uInk, vec3(2.2)), mask);
-      gloss = (1.0 - mask*0.55)*(1.0 + sm*0.60);
-      envAmt = 0.16 + sm*0.22;
-    } else if(hit.y < 1.5){
+
+      gloss  = 1.0 - mask*0.55;
+      envAmt = 0.16;
+      gloss  = mix(gloss, 0.30, cm);       // 생크림은 매트
+      gloss  = mix(gloss, 2.30, chB);      // 체리는 반질반질
+      envAmt = mix(envAmt, 0.28, chB);
+      wet    = chB;                        // 체리에만 얇은 하이라이트 밴드를 더한다
+    } else {
       base = pow(uPlate, vec3(2.2));                   // 도자기
       gloss = 0.55; envAmt = 0.10;
-    } else {
-      // 접시 위의 시럽. 얕게 깔려서 접시의 흰색이 비쳐 올라온다.
-      vec3 tint = pow(uSyrupCol, vec3(2.2));
-      base  = pow(uPlate, vec3(2.2))*pow(max(tint, vec3(0.02)), vec3(0.9)) + tint*0.18;
-      gloss = 2.6; envAmt = 0.30;
-      wet   = 1.0;
+
+      /* 접시 위의 시럽 웅덩이. 지오메트리가 없으므로 여기서 칠하는 게
+         전부다 — 그래서 테두리가 있을 수 없다. 커스터드에 얹던 것과
+         같은 Beer-Lambert 로, 접시의 흰색이 옅게 비쳐 올라온다. */
+      float pm = syrupPoolMask(p);
+      if(pm > 0.001){
+        vec3 tint  = pow(uSyrupCol, vec3(2.2));
+        vec3 trans = pow(max(tint, vec3(0.02)), vec3(mix(0.35, 1.0, pm)));
+        base   = mix(base, base*trans + tint*0.10*pm, pm);
+        gloss  = mix(gloss, 2.4, pm);
+        envAmt = mix(envAmt, 0.30, pm);
+        wet    = max(wet, pm);
+      }
     }
 
     vec3 lin = vec3(0.0);

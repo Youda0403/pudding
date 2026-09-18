@@ -12,7 +12,10 @@
     animal: 0,        // 0~7
     eye: 0,           // 0~4
     mouth: 0,         // 0~3
-    syrup: 0,         // 0 없음 / 1 머리 / 2 전체 / 3 접시
+    syrup: 0,         // 0 없음 / 1 접시에 웅덩이
+    cherry: 0,        // 0/1
+    cream: 0,         // 0/1
+    sprinkle: 0,      // 0/1
     az: 0.40, el: 0.26, dist: 6.00,
     // 예전에 셰이더에 박혀 있던 색들. 조명 계산은 선형 공간에서 하므로
     // 그 선형 값을 sRGB 로 되돌린 값이다 (예: 눈 0.135 → 0x67).
@@ -64,7 +67,8 @@
 
     var U = {};
     ['uRes', 'uTime', 'uMode', 'uCam', 'uJiggle', 'uEye', 'uMouth', 'uAnimal',
-     'uBody', 'uInk', 'uSyrupCol', 'uSyrup', 'uPlate', 'uBg'].forEach(function (name) {
+     'uBody', 'uInk', 'uSyrupCol', 'uSyrup', 'uCherry', 'uCream', 'uSprinkle',
+     'uPlate', 'uBg'].forEach(function (name) {
       U[name] = gl.getUniformLocation(prog, name);
     });
 
@@ -87,6 +91,9 @@
       gl.uniform1f(U.uMouth, scene.mouth);
       gl.uniform1f(U.uAnimal, scene.animal);
       gl.uniform1f(U.uSyrup, scene.syrup);
+      gl.uniform1f(U.uCherry, scene.cherry);
+      gl.uniform1f(U.uCream, scene.cream);
+      gl.uniform1f(U.uSprinkle, scene.sprinkle);
       gl.uniform3fv(U.uBody, rgb01(scene.body));
       gl.uniform3fv(U.uInk, rgb01(scene.ink));
       gl.uniform3fv(U.uSyrupCol, rgb01(scene.syrupCol));
