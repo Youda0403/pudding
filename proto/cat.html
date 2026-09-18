@@ -248,7 +248,11 @@ vec3 onFace(vec2 c, float lift){
 /* ---------------------------------------------------------------------
    5. 귀 — 동물 8종
 
-   귀는 전부 '두 구의 볼록 껍질(sdRoundCone)' 하나로 만든다. 밑동 구와 끝 구의
+   귀는 '바깥 덩어리' 와 '앞면에 파인 귓바퀴' 두 단계로 만든다.
+   덩어리만 붙여 두면 아무리 매끄럽게 녹여도 몸에 도형을 얹은 것으로 보인다.
+   귀로 읽히게 하는 것은 앞면의 홈과 그 테두리다 (아래 earInner 참고).
+
+   바깥 덩어리는 전부 '두 구의 볼록 껍질(sdRoundCone)' 하나로 만든다. 밑동 구와 끝 구의
    위치·반지름, 그리고 앞뒤로 눌린 정도만 바꾸면 여덟 가지가 다 나온다.
      · 삼각 귀(고양이·여우)   밑동이 굵고 끝이 가늘다
      · 긴 귀(토끼)            밑동에서 끝까지 길고 앞뒤로 납작하다
@@ -314,6 +318,69 @@ float earBlend(){
   vec3 a,b; float r1,r2,fz,k;
   earSpec(a,r1,b,r2,fz,k);
   return k;
+}
+
+/* 귓바퀴 — 귀를 '귀'로 보이게 하는 것은 앞면에 파인 홈이다.
+   덩어리만 붙여 두면 아무리 매끄러워도 몸에 도형을 붙인 것으로 보인다.
+
+   홈은 귀와 같은 축을 쓰는 같은 모양의 라운드콘이다. 반지름을 si 배로
+   줄이고 앞(+z)으로 밀어서 앞면만 dep 만큼 파이고 테두리와 뒷면은 남는다.
+   귀가 앞뒤로 눌린 좌표계 안에서 밀기 때문에 홈도 같이 눌린다 — 납작한
+   귀에는 얕고 넓은 홈이, 통통한 귀에는 깊은 홈이 생긴다.
+
+   깊이 dep 을 정하면 앞면에 뚫리는 구멍의 폭은 √(2·si·dep − dep²) 로
+   따라온다(반지름 대비). 그래서 두 값으로 '홈의 깊이'와 '테두리의 두께'가
+   같이 정해진다. 밀어낼 거리는 zin = si + 1 − dep.
+
+   t0,t1 은 축 위에서 홈이 시작·끝나는 지점이다.
+     t0  머리 밖으로 귀가 나오는 높이보다 위 — 더 내려가면 머리를 판다
+     t1  1 보다 작게 — 귀 끝은 꽉 차 있어야 뭉툭해 보인다 */
+void earInner(out float si, out float dep, out float t0, out float t1, out float kin){
+  if(uAnimal < 0.5){        // 고양이
+    si=0.92; dep=0.34; t0=0.745; t1=0.945; kin=0.018;
+  } else if(uAnimal < 1.5){ // 강아지
+    si=0.90; dep=0.40; t0=0.270; t1=0.880; kin=0.026;
+  } else if(uAnimal < 2.5){ // 토끼
+    si=0.90; dep=0.62; t0=0.340; t1=0.945; kin=0.014;
+  } else if(uAnimal < 3.5){ // 롭이어
+    si=0.90; dep=0.40; t0=0.240; t1=0.870; kin=0.026;
+  } else if(uAnimal < 4.5){ // 곰
+    si=0.76; dep=0.40; t0=0.000; t1=1.000; kin=0.022;
+  } else if(uAnimal < 5.5){ // 쥐
+    si=0.82; dep=0.46; t0=0.000; t1=1.000; kin=0.022;
+  } else if(uAnimal < 6.5){ // 여우
+    si=0.92; dep=0.36; t0=0.760; t1=0.945; kin=0.018;
+  } else {                  // 햄스터
+    si=0.64; dep=0.30; t0=0.000; t1=1.000; kin=0.018;
+  }
+}
+
+float sdEarInner(vec3 q){
+  vec3 a,b; float r1,r2,fz,k;
+  earSpec(a,r1,b,r2,fz,k);
+  float si,dep,t0,t1,kin;
+  earInner(si,dep,t0,t1,kin);
+
+  vec3 e = vec3(abs(q.x), q.y, q.z);
+  e.z /= fz;  a.z /= fz;  b.z /= fz;
+
+  float ra = mix(r1, r2, t0), rb = mix(r1, r2, t1);
+  float zin = si + 1.0 - dep;                 // 앞으로 밀 거리 (반지름 대비)
+  vec3  ia = mix(a, b, t0);  ia.z += zin*ra;
+  vec3  ib = mix(a, b, t1);  ib.z += zin*rb;
+  return sdRoundCone(e, ia, ib, si*ra, si*rb);
+}
+
+float earInnerBlend(){
+  float si,dep,t0,t1,kin; earInner(si,dep,t0,t1,kin); return kin;
+}
+
+/* 파인 귓바퀴에만 색을 얹기 위한 필드.
+   홈 안쪽(sdEarInner<=0)이면서 '원래 귀 덩어리 안'인 곳만 고른다.
+   뒤 항이 없으면 홈의 원기둥이 지나가는 머리 표면까지 물든다.
+   0.015 만큼 여유를 두어 테두리는 색이 묻지 않고 커스터드로 남는다. */
+float earInk(vec3 q){
+  return max(sdEarInner(q), sdEars(q) + 0.015);
 }
 
 /* ---------------------------------------------------------------------
@@ -394,7 +461,9 @@ vec4 puddingSpace(vec3 p){
 float sdBodyEars(vec3 q){
   // 고양이는 머리와 귀가 같은 직선에 접해 있어 아주 작은 k 로 충분하다.
   // 동그란 귀·늘어진 귀는 머리에 얹힌 모양이라 조금 더 녹여야 자연스럽다.
-  return sminExp(sdBody(q), sdEars(q), earBlend());
+  // 귓바퀴는 귀에서만 파낸다. 몸통을 합치기 전에 파야 머리까지 패지 않는다.
+  float ear = opSmoothSub(sdEarInner(q), sdEars(q), earInnerBlend());
+  return sminExp(sdBody(q), ear, earBlend());
 }
 
 float sdCatPudding(vec3 p){
@@ -554,6 +623,12 @@ void main(){
       // 파낸 얼굴 자국에 색을 얹는다. 형태를 만든 것과 같은 거리장을 쓰므로
       // 색과 굴곡이 정확히 같은 자리에 온다.
       vec3  q    = puddingSpace(p).xyz;
+
+      // 귓바퀴. 홈을 판 것과 같은 거리장을 쓰므로 색과 굴곡이 같은 자리에 온다.
+      // 얇은 귀(토끼·쥐)는 홈이 깊어질 수 없어서, 색이 있어야 비로소 귀로 읽힌다.
+      float em = 1.0 - smoothstep(0.0, 0.012, earInk(q));
+      base = mix(base, pow(vec3(0.930, 0.788, 0.734), vec3(2.2)), em*0.88);
+
       float ink  = faceInk(q, sdBodyEars(q));
       float mask = 1.0 - smoothstep(0.0, 0.012, ink);
       base = mix(base, vec3(0.135, 0.085, 0.060), mask);
