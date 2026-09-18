@@ -12,7 +12,7 @@
 </head>
 <body>
 <canvas id="c" width="640" height="640"></canvas>
-<p class="hint" id="hint">드래그: 시점 · 1 완성 · 2 정면 실루엣 · 3 측면 실루엣 · Space 흔들림 정지 · E 눈 5종 · M 입 4종</p>
+<p class="hint" id="hint">드래그: 시점 · 1 완성 · 2 정면 실루엣 · 3 측면 실루엣 · Space 흔들림 · A 동물 8종 · E 눈 5종 · M 입 4종</p>
 
 <script id="vs" type="x-shader">#version 300 es
 in vec2 aPos;
@@ -30,6 +30,7 @@ uniform vec3  uCam;      // 방위각, 고도, 거리
 uniform float uJiggle;   // 흔들림 세기 (0 이면 정지)
 uniform float uEye;      // 눈 종류 0 동글 / 1 올라간 / 2 내려간 / 3 반 / 4 웃는
 uniform float uMouth;    // 입 종류 0 ω / 1 ^ / 2 일자 / 3 웃는
+uniform float uAnimal;   // 0 고양이 1 강아지 2 토끼 3 롭이어 4 곰 5 쥐 6 여우 7 햄스터
 
 /* =====================================================================
    고양이 푸딩 (Cat Pudding) — SDF
@@ -245,35 +246,74 @@ vec3 onFace(vec2 c, float lift){
 }
 
 /* ---------------------------------------------------------------------
-   5. 귀
+   5. 귀 — 동물 8종
 
-   바깥선·안쪽선 두 직선에 동시에 접하는 원뿔이다. (안쪽선은 실측값보다
-   0.015 바깥으로 옮겨 잡았다 — 결합할 때 지수 smin 이 골을 딱 그만큼
-   메우기 때문이다. 그래야 렌더한 결과가 레퍼런스와 맞는다.) 두 직선의 교점(가상
-   꼭짓점)에서 잰 반각이 26.4°, 축 위에서 꼭짓점으로부터 s 만큼 내려온
-   공의 반지름이 0.444·s 면 두 선에 모두 접한다. 밑동 구와 끝 구를 그렇게
-   잡았기 때문에, 귀의 옆선은 두 구 사이에서 정확히 그 직선이 된다.
+   귀는 전부 '두 구의 볼록 껍질(sdRoundCone)' 하나로 만든다. 밑동 구와 끝 구의
+   위치·반지름, 그리고 앞뒤로 눌린 정도만 바꾸면 여덟 가지가 다 나온다.
+     · 삼각 귀(고양이·여우)   밑동이 굵고 끝이 가늘다
+     · 긴 귀(토끼)            밑동에서 끝까지 길고 앞뒤로 납작하다
+     · 늘어진 귀(강아지·롭이어) 머리 옆에서 아래로. 끝이 밑동보다 굵다
+     · 동그란 귀(곰·쥐·햄스터) 두 구가 거의 같은 자리·같은 크기 = 공 하나
 
-   밑동 구(r=0.43)는 머리 안에 거의 다 묻혀 있고, 머리와 같은 점에서 같은
-   직선에 닿는다. 그래서 귀는 머리에 얹힌 별개의 뿔이 아니라 머리와 같은
-   살에서 이어져 올라온 모양이 된다.
+   값은 레퍼런스 정면 칸을 픽셀로 재서 옮겼다. 칸마다 그림 크기가 달라서
+   '정수리(=0.835)까지의 높이'로 칸마다 척도를 역산했다. 고양이로 검산하면
+   귀 끝이 정수리 위 +0.303 으로 나오는데, 앞서 따로 맞춰 둔 고양이
+   값(+0.310)과 일치한다 — 그래서 귀 높이는 레퍼런스 수치를 그대로 쓴다.
 
-   끝 구만 접선 반지름(0.077)보다 조금 크게(0.090) 뒀다. 그만큼 끝이
-   선 밖으로 볼록하게 나오면서 동글동글한 뿔이 된다. 볼록하게 나오는
-   것이라 꺾이거나 패이지 않는다.
+   다만 좌우 위치는 그대로 옮길 수 없었다. 레퍼런스의 몸통은 칸마다
+   '위가 둥근 원통'에 가까워서 정수리 근처까지 폭이 남아 있는데, 우리
+   몸통은 타원체 하나라 위로 갈수록 빠르게 좁아진다(반폭 y=0.5 에서 0.555,
+   0.7 에서 0.390, 0.8 에서 0.206). 그래서 귀의 x 는 레퍼런스 값이 아니라
+   우리 몸통의 그 높이 반폭을 기준으로 다시 잡았다. 그대로 옮겼더니 강아지·
+   롭이어 귀가 몸통 속에 통째로 묻혀 버렸다.
+
+   이음매는 두 가지다.
+     · 세운 귀(고양이·여우)  밑동 구를 몸통 타원에 접하는 직선 위에 올려
+       바깥선이 몸통에서 접선으로 빠져나온다 = 턱이 없다. 그래서 여우는
+       고양이와 밑동 구를 공유하고 끝 구만 위로·굵게 옮겼다.
+     · 나머지  직선 접선 구조가 아니라 이음매에 오목한 필렛이 생긴다.
+       레퍼런스도 그렇다 — 동그란 귀가 머리에 얹히거나 귀가 옆으로 늘어지면
+       원래 그 자리에 골이 진다. 볼록하게 튀었다 들어가는 '턱'과는 다르다.
+
+   햄스터는 레퍼런스(다람쥐, 정수리 위 +0.39)를 따르지 않고 실제 햄스터처럼
+   작게(+0.17) 줄였다.
    --------------------------------------------------------------------- */
-const vec3  EAR_BASE = vec3(0.2182, 0.2693, 0.000);
-const float EAR_R1   = 0.4237;
-const vec3  EAR_TIP  = vec3(0.3395, 1.0550, 0.060);   // z 차이 = 앞으로 눕는 정도
-const float EAR_R2   = 0.090;
-const float EAR_Z    = 1.10;    // 귀 단면의 앞뒤/좌우 비 (몸통과 달리 앞뒤로 안 눌린다)
+
+/* a,b = 밑동·끝 구의 중심,  r1,r2 = 각 반지름,  fz = 앞뒤 두께 / 좌우 폭,
+   k = 몸통과 녹이는 정도 */
+void earSpec(out vec3 a, out float r1, out vec3 b, out float r2, out float fz, out float k){
+  if(uAnimal < 0.5){        // 고양이 — 두 직선에 접하게 맞춘 값
+    a=vec3(0.2182,0.2693,0.000); r1=0.4237; b=vec3(0.3395,1.0550,0.060); r2=0.090; fz=1.10; k=0.012;
+  } else if(uAnimal < 1.5){ // 강아지 — 머리 옆에서 아래로 늘어진 납작한 귀
+    a=vec3(0.2400,0.8000,0.000); r1=0.100; b=vec3(0.7200,0.4200,0.000); r2=0.160; fz=0.50; k=0.030;
+  } else if(uAnimal < 2.5){ // 토끼 — 길고 앞뒤로 납작한 귀
+    a=vec3(0.2500,0.6200,0.000); r1=0.190; b=vec3(0.2750,1.1900,0.000); r2=0.100; fz=0.62; k=0.020;
+  } else if(uAnimal < 3.5){ // 롭이어 — 강아지보다 길고 굵게 늘어진 귀
+    a=vec3(0.2300,0.8100,0.000); r1=0.100; b=vec3(0.7900,0.3000,0.000); r2=0.210; fz=0.46; k=0.030;
+  } else if(uAnimal < 4.5){ // 곰 — 작고 동그란 귀
+    a=vec3(0.2850,0.8950,0.000); r1=0.155; b=vec3(0.3050,0.9500,0.000); r2=0.145; fz=0.85; k=0.022;
+  } else if(uAnimal < 5.5){ // 쥐 — 크고 앞뒤로 얇은 원반 귀
+    a=vec3(0.3350,0.9000,0.000); r1=0.205; b=vec3(0.3550,0.9450,0.000); r2=0.195; fz=0.45; k=0.022;
+  } else if(uAnimal < 6.5){ // 여우 — 고양이보다 크고 길쭉한 삼각 귀
+    a=vec3(0.2182,0.2693,0.000); r1=0.4237; b=vec3(0.3150,1.1250,0.020); r2=0.125; fz=0.95; k=0.012;
+  } else {                  // 햄스터 — 레퍼런스(다람쥐)보다 훨씬 작은, 실제 햄스터 같은 귀
+    a=vec3(0.2700,0.8450,0.000); r1=0.120; b=vec3(0.2900,0.8950,0.000); r2=0.112; fz=0.80; k=0.030;
+  }
+}
 
 float sdEars(vec3 q){
+  vec3 a,b; float r1,r2,fz,k;
+  earSpec(a,r1,b,r2,fz,k);
   vec3 e = vec3(abs(q.x), q.y, q.z);      // 좌우 대칭
-  e.z /= EAR_Z;
-  vec3 a = vec3(EAR_BASE.x, EAR_BASE.y, EAR_BASE.z/EAR_Z);
-  vec3 b = vec3(EAR_TIP.x,  EAR_TIP.y,  EAR_TIP.z /EAR_Z);
-  return sdRoundCone(e, a, b, EAR_R1, EAR_R2);
+  e.z /= fz;
+  a.z /= fz; b.z /= fz;
+  return sdRoundCone(e, a, b, r1, r2);
+}
+
+float earBlend(){
+  vec3 a,b; float r1,r2,fz,k;
+  earSpec(a,r1,b,r2,fz,k);
+  return k;
 }
 
 /* ---------------------------------------------------------------------
@@ -352,10 +392,9 @@ vec4 puddingSpace(vec3 p){
 
 // 몸통 + 귀. 얼굴을 파기 전 단계라서 얼굴 자국이 '표면'을 찾을 때도 이걸 쓴다.
 float sdBodyEars(vec3 q){
-  // 머리와 귀가 이미 같은 직선에 접해 있으므로, 여기서 할 일은 닿는 자리를
-  // 살짝 녹이는 것뿐이다. 위치에 따라 k 를 바꿀 필요가 없다 — 상수 하나면 된다.
-  // (k 를 위치에 따라 바꾸면 그 변화가 그대로 면의 곡률 변화로 나타난다)
-  return sminExp(sdBody(q), sdEars(q), 0.012);
+  // 고양이는 머리와 귀가 같은 직선에 접해 있어 아주 작은 k 로 충분하다.
+  // 동그란 귀·늘어진 귀는 머리에 얹힌 모양이라 조금 더 녹여야 자연스럽다.
+  return sminExp(sdBody(q), sdEars(q), earBlend());
 }
 
 float sdCatPudding(vec3 p){
@@ -579,15 +618,17 @@ void main(){
     cam: gl.getUniformLocation(prog, 'uCam'),
     jiggle: gl.getUniformLocation(prog, 'uJiggle'),
     eye: gl.getUniformLocation(prog, 'uEye'),
-    mouth: gl.getUniformLocation(prog, 'uMouth')
+    mouth: gl.getUniformLocation(prog, 'uMouth'),
+    animal: gl.getUniformLocation(prog, 'uAnimal')
   };
 
   // 눈·입 종류. E / M 키로 돌려 가며 본다.
   var EYES = ['동글', '올라간', '내려간', '반', '웃는'];
   var MOUTHS = ['ω', '^', '일자', '웃는'];
+  var ANIMALS = ['고양이', '강아지', '토끼', '롭이어', '곰', '쥐', '여우', '햄스터'];
 
   var CAT = window.CAT3D = {
-    mode: 0, jiggle: 1, eye: 0, mouth: 0,
+    mode: 0, jiggle: 1, eye: 0, mouth: 0, animal: 0,
     az: 0.40, el: 0.26, dist: 6.00,
     draw: function(t){
       // 캔버스 크기가 바뀌었을 수 있으니 뷰포트를 매번 맞춘다
@@ -600,6 +641,7 @@ void main(){
       gl.uniform1f(U.jiggle, CAT.jiggle);
       gl.uniform1f(U.eye, CAT.eye);
       gl.uniform1f(U.mouth, CAT.mouth);
+      gl.uniform1f(U.animal, CAT.animal);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.finish();
     }
@@ -608,7 +650,8 @@ void main(){
   var hint = document.getElementById('hint');
   var hintBase = hint.textContent;
   function showFace(){
-    hint.textContent = hintBase + '  —  ' + EYES[CAT.eye] + ' 눈 / ' + MOUTHS[CAT.mouth] + ' 입';
+    hint.textContent = hintBase + '  —  ' + ANIMALS[CAT.animal] +
+      ' / ' + EYES[CAT.eye] + ' 눈 / ' + MOUTHS[CAT.mouth] + ' 입';
   }
 
   var drag = null;
@@ -631,6 +674,10 @@ void main(){
     }
     if(e.key === 'm' || e.key === 'M'){
       CAT.mouth = (CAT.mouth + 1) % MOUTHS.length;
+      showFace();
+    }
+    if(e.key === 'a' || e.key === 'A'){
+      CAT.animal = (CAT.animal + 1) % ANIMALS.length;
       showFace();
     }
   });
