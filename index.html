@@ -7,27 +7,53 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="app-header">
-    <h1>탱글 푸딩</h1>
-    <p class="sub">푸딩을 톡 눌러보세요</p>
-  </header>
 
-  <main class="app-main">
-    <div class="stage">
-      <canvas id="preview" width="320" height="320" aria-label="푸딩 미리보기"></canvas>
+<header class="hd">
+  <h1>탱글 푸딩</h1>
+  <p class="sub">푸딩을 톡 눌러보세요</p>
+</header>
+
+<main class="wrap">
+
+  <section class="stage">
+    <canvas id="view" width="640" height="640" aria-label="푸딩 미리보기"></canvas>
+    <div class="busy" id="busy" hidden>
+      <div class="busy-box">
+        <p id="busyText">GIF 만드는 중…</p>
+        <div class="bar"><i id="busyBar"></i></div>
+      </div>
     </div>
-  </main>
+  </section>
 
-  <script src="js/config.js"></script>
-  <script src="js/color.js"></script>
-  <script src="js/state.js"></script>
-  <script src="js/parts/plate.js"></script>
-  <script src="js/parts/ears.js"></script>
-  <script src="js/parts/body.js"></script>
-  <script src="js/parts/syrup.js"></script>
-  <script src="js/parts/eyes.js"></script>
-  <script src="js/render.js"></script>
-  <script src="js/motion.js"></script>
-  <script src="js/main.js"></script>
+  <div class="acts">
+    <button type="button" class="btn ghost" id="random">랜덤</button>
+    <button type="button" class="btn go" id="save">GIF 저장</button>
+  </div>
+
+  <section class="panel">
+    <h2>동물</h2>
+    <div class="chips" id="animals"></div>
+
+    <h2>눈</h2>
+    <div class="chips" id="eyes"></div>
+
+    <h2>입</h2>
+    <div class="chips" id="mouths"></div>
+
+    <h2>시럽</h2>
+    <div class="chips" id="syrups"></div>
+
+    <h2>색</h2>
+    <div class="colors" id="colors"></div>
+  </section>
+
+  <p class="foot">드래그하면 돌려볼 수 있어요 · 저장하면 한 바퀴 도는 GIF 가 받아집니다</p>
+</main>
+
+<script src="js/color.js"></script>
+<script src="js/gif.js"></script>
+<script src="js/sdf/shader.js"></script>
+<script src="js/sdf/scene.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
