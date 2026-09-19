@@ -456,9 +456,34 @@ float faceMark2D(vec2 c){
      shell : 표면에서 INK_DEPTH 이내 (여기서 깊이가 일정해진다)
              + 앞면만 (z 로 자르지 않으면 뒤통수에도 같은 자국이 찍힌다)
    교집합도 smax 로 해야 자국 바닥과 벽이 만나는 곳까지 둥글게 남는다. */
+float faceShell(vec3 q, float body){
+  return smax(-(body + INK_DEPTH), 0.10 - q.z, 0.014);
+}
 float faceInk(vec3 q, float body){
-  float shell = smax(-(body + INK_DEPTH), 0.10 - q.z, 0.014);
-  return smax(faceMark2D(q.xy), shell, 0.011);
+  return smax(faceMark2D(q.xy), faceShell(q, body), 0.011);
+}
+
+/* 입 색. 눈은 사용자가 고른 색(uInk)을 그대로 쓰지만 입은 푸딩 색을 따라
+   가야 한다 — 다만 "따라간다" 를 그냥 곱하기로 어둡게 하면 연한 푸딩에선
+   흐린 회색이 되고 진한 푸딩에선 안 보인다.
+
+   그래서 두 단계다. 먼저 5.28 제곱(= 선형화 2.2 × 심화 2.4)으로 색을
+   깊게 만든다 — 작은 채널이 더 많이 떨어지므로 채도가 올라가 커스터드의
+   미색이 갈색 쪽으로 간다. 그다음 밝기를 0.0938(예전 기본 잉크 #675347 의
+   선형 휘도)로 맞춘다. 밝기를 고정하니 어떤 푸딩 색이든 어둡기는 늘
+   지금만큼이고, 달라지는 건 색기운뿐이다. 단 푸딩 자체가 그보다 어두우면
+   (진한 초콜릿색 같은) 고정 밝기가 오히려 몸통보다 밝아지므로, 그때는
+   몸통 휘도의 30% 로 따라 내려간다. */
+vec3 mouthInk(){
+  const vec3 W = vec3(0.2126, 0.7152, 0.0722);
+  vec3  bl = pow(uBody, vec3(2.2));            // 푸딩 색(선형)
+  vec3  dp = pow(bl,    vec3(2.4));            // 깊게 — 어두운 채널이 더 떨어져 채도가 오른다
+  float by = dot(bl, W);
+  float dy = max(dot(dp, W), 1e-4);
+  // 목표 밝기: 기본 잉크(#675347)의 휘도. 다만 푸딩이 그보다 어두우면
+  // 그 30% 로 내린다 — 안 그러면 진한 갈색 푸딩에서 입이 몸통보다 밝아진다.
+  float t  = min(0.0938, by*0.30);
+  return clamp(dp*(t/dy), 0.0, 1.0);
 }
 
 /* ---------------------------------------------------------------------
@@ -540,35 +565,70 @@ float sdCherry(vec3 q){
   return smin(sdCherryBody(q), sdCherryStem(q), 0.010);
 }
 
-/* 스프링클. 작은 구 여섯 개를 이마에 흩어 놓는다.
+/* 스프링클 — 생크림 둘레에 톡톡 얹힌 막대 여섯 개.
 
-   처음엔 체리·생크림과 같은 정수리 자리를 썼다. 그런데 그 자리는 이미
-   좁아서(귀 두 개가 좌우에서 조이는 자리다) 생크림을 켜면 넓은 밑동에
-   전부 먹히고, 생크림 없이도 귀가 가까운 동물(고양이·여우)에서는 귀에
-   먹혔다. 그래서 자리를 옮겼다 — onFace() 로 이마(눈 위, 정수리 아래)의
-   몸통 표면에 직접 앉힌다. 얼굴 자국과 같은 함수라 어느 동물이든 정확히
-   표면 위에 놓이고, 체리·생크림과도, 귀와도 자리가 겹치지 않는다.
+   전엔 이마에 구를 흩뿌렸는데 두 가지가 문제였다.
 
-   서로 겹치지 않게 떨어뜨려 두었으므로(각자 반지름의 두 배보다 멀다)
-   min() 으로 합쳐도 이음매가 생기지 않는다 — 몸통과 만나는 자리에서만
-   sminExp 로 녹인다. */
-float sdSprinkles(vec3 q){
+   하나, 파묻혔다. onFace(c, lift) 의 lift 는 x·z 방향으로만 밀어내는데
+   (얼굴 자국을 얕게 파려고 만든 함수다) 이마처럼 높은 자리에서는 진짜
+   법선이 거의 +y 라 실제로 떠오르는 높이가 lift 보다 훨씬 작다. 반지름
+   0.017 짜리 구를 0.010 띄웠으니 절반 넘게 몸통에 잠긴 채였다.
+
+   둘, 구는 스프링클로 안 보인다. 실제 스프링클은 가는 막대다.
+
+   그래서 캡슐(막대)로 바꾸고, 자리는 오프라인에서 미리 풀어 상수로 박았다.
+   몸통도 생크림도 동물과 무관하게 고정된 모양이라 그 표면 위의 점은
+   계산할 필요 없이 그냥 상수다 — 레이마칭 안에서 법선을 뽑는 비용이 0 이다.
+   각 점은 해당 거리장이 +0.0045 인 자리(반지름 0.0075 의 막대가 살짝만
+   잠기고 대부분 드러나는 높이)에 있고, 축은 그 자리의 접평면 위에 눕혔다.
+
+   생크림이 있으면 크림 표면에, 없으면 정수리 둘레의 몸통 표면에 앉는다
+   (uCream 은 0/1 이라 mix 는 그냥 둘 중 하나를 고르는 것이다). */
+const float SPR_R = 0.010;     // 막대 반지름 (길이는 그 4배쯤)
+
+/* id 는 몇 번째 막대가 가장 가까운지다. 색은 막대마다 하나여야 하므로
+   (예전처럼 좌표로 색을 고르면 막대 하나에 줄무늬가 생긴다) 색칠할 때
+   이 번호로 고른다. */
+float sdSprinkles(vec3 q, out float id){
+  id = 0.0;
   if(uSprinkle < 0.5) return 1e5;
-  vec3 c0 = onFace(vec2( 0.150, 0.660), 0.010);
-  vec3 c1 = onFace(vec2(-0.130, 0.700), 0.009);
-  vec3 c2 = onFace(vec2( 0.010, 0.730), 0.010);
-  vec3 c3 = onFace(vec2(-0.235, 0.615), 0.009);
-  vec3 c4 = onFace(vec2( 0.245, 0.600), 0.009);
-  vec3 c5 = onFace(vec2(-0.040, 0.590), 0.010);
-  float d = 1e5;
-  d = min(d, sdSphere(q - c0, 0.017));
-  d = min(d, sdSphere(q - c1, 0.016));
-  d = min(d, sdSphere(q - c2, 0.017));
-  d = min(d, sdSphere(q - c3, 0.015));
-  d = min(d, sdSphere(q - c4, 0.015));
-  d = min(d, sdSphere(q - c5, 0.016));
+  float t = step(0.5, uCream);
+  vec3 p, a;
+  float d = 1e5, e;
+
+  p = mix(vec3(+0.1765, +0.6451, +0.3208), vec3(+0.1059, +0.9050, +0.0461), t);
+  a = mix(vec3(+0.0221, +0.0057, -0.0124), vec3(-0.0137, +0.0027, +0.0219), t);
+  e = sdCapsule3(q, p - a, p + a, SPR_R);
+  if(e < d){ d = e; id = 0.0; }
+
+  p = mix(vec3(-0.1514, +0.6704, +0.3026), vec3(-0.0660, +0.8851, +0.0584), t);
+  a = mix(vec3(+0.0241, -0.0029, +0.0094), vec3(-0.0198, +0.0076, -0.0150), t);
+  e = sdCapsule3(q, p - a, p + a, SPR_R);
+  if(e < d){ d = e; id = 1.0; }
+
+  p = mix(vec3(+0.0202, +0.7058, +0.2874), vec3(+0.0180, +0.9050, -0.0919), t);
+  a = mix(vec3(+0.0057, +0.0179, -0.0180), vec3(+0.0258, +0.0027, -0.0014), t);
+  e = sdCapsule3(q, p - a, p + a, SPR_R);
+  if(e < d){ d = e; id = 2.0; }
+
+  p = mix(vec3(-0.2572, +0.6049, +0.3312), vec3(-0.0114, +0.9681, +0.0878), t);
+  a = mix(vec3(+0.0244, +0.0089, +0.0020), vec3(-0.0259, +0.0007, +0.0019), t);
+  e = sdCapsule3(q, p - a, p + a, SPR_R);
+  if(e < d){ d = e; id = 3.0; }
+
+  p = mix(vec3(+0.2672, +0.5898, +0.3419), vec3(-0.0829, +0.9681, -0.0142), t);
+  a = mix(vec3(+0.0219, -0.0135, +0.0034), vec3(+0.0113, +0.0007, -0.0234), t);
+  e = sdCapsule3(q, p - a, p + a, SPR_R);
+  if(e < d){ d = e; id = 4.0; }
+
+  p = mix(vec3(-0.0554, +0.5946, +0.3929), vec3(+0.0550, +1.0086, -0.0393), t);
+  a = mix(vec3(+0.0169, +0.0149, -0.0129), vec3(+0.0086, +0.0007, +0.0245), t);
+  e = sdCapsule3(q, p - a, p + a, SPR_R);
+  if(e < d){ d = e; id = 5.0; }
+
   return d;
 }
+float sdSprinkles(vec3 q){ float id; return sdSprinkles(q, id); }
 
 /* ---------------------------------------------------------------------
    6.6 접시 웅덩이
@@ -602,7 +662,7 @@ float sdCatPudding(vec3 p){
   // 정수리 위 토핑. 생크림은 밑에서부터 짜 올라간 반죽이니 몸통과 크게
   // 녹이고, 체리·스프링클은 위에 얹힌 것이니 작게 녹인다.
   d = sminExp(d, sdCream(q), 0.010);
-  d = sminExp(d, sdSprinkles(q), 0.006);
+  d = sminExp(d, sdSprinkles(q), 0.004);
   d = sminExp(d, sdCherry(q), 0.012);
 
   // 얼굴을 미세하게 파낸다 (모서리 없이).
@@ -789,8 +849,9 @@ void main(){
       base  = mix(base, pow(vec3(1.000, 0.988, 0.962), vec3(2.2)), cm);
 
       // 스프링클 — 위치로 세 가지 색을 번갈아 고른다(알마다 좌표가 다르므로).
-      float sp    = 1.0 - smoothstep(0.0, 0.011, sdSprinkles(q));
-      float spHue = mod(floor((q.x + q.z)*37.0), 3.0);
+      float spId;
+      float sp    = 1.0 - smoothstep(0.005, 0.011, sdSprinkles(q, spId));
+      float spHue = mod(spId, 3.0);
       vec3  spCol = spHue < 0.5 ? vec3(0.86, 0.20, 0.24)
                   : spHue < 1.5 ? vec3(0.96, 0.78, 0.20)
                   :               vec3(0.30, 0.55, 0.86);
@@ -802,9 +863,15 @@ void main(){
       base  = mix(base, pow(vec3(0.78, 0.075, 0.115), vec3(2.2)), chB);
       base  = mix(base, pow(vec3(0.36, 0.42, 0.16), vec3(2.2)), chS);
 
-      float ink  = faceInk(q, dBE);
-      float mask = 1.0 - smoothstep(0.0, 0.012, ink);
-      base = mix(base, pow(uInk, vec3(2.2)), mask);
+      /* 눈과 입은 같은 껍질에서 따로 뽑는다. 파낸 모양(faceInk)은 그대로고
+         색칠만 둘로 갈린다 — 눈은 고른 색, 입은 푸딩 색에서 끌어낸 색. */
+      float shl  = faceShell(q, dBE);
+      vec2  fm   = vec2(abs(q.x), q.y);
+      float eyeM = 1.0 - smoothstep(0.0, 0.012, smax(sdEye2(fm - EYE_POS), shl, 0.011));
+      float mthM = 1.0 - smoothstep(0.0, 0.012, smax(sdMouth2(fm), shl, 0.011));
+      base = mix(base, pow(uInk, vec3(2.2)), eyeM);
+      base = mix(base, mouthInk(), mthM);
+      float mask = max(eyeM, mthM);
 
       gloss  = 1.0 - mask*0.55;
       envAmt = 0.16;
