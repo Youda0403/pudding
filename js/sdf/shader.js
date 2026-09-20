@@ -528,15 +528,14 @@ vec3 animalCoat(vec3 base,vec3 q){
   vec3 dark=pow(brightness<0.16?mix(uBody,vec3(1.0),0.14):uBody*0.32,vec3(2.2));
   float mask=0.0;
   if(uSpecies<8.5){
-    // 앞이마의 부드러운 곡선 무늬. 양끝을 가늘게 하고 등에는 칠하지 않는다.
-    float t=clamp((q.y-0.625)/0.225,0.0,1.0);
-    float envelope=pow(max(0.0,sin(3.14159265*t)),0.72);
-    float front=smoothstep(0.025,0.16,q.z);
-    float x=abs(q.x),curve=0.092+0.052*t+0.014*sin(3.14159265*t);
-    float middle=1.0-smoothstep(0.010*envelope,0.010*envelope+0.005,x);
-    float sides=1.0-smoothstep(0.019*envelope,0.019*envelope+0.006,abs(x-curve));
-    float region=smoothstep(0.625,0.646,q.y)*(1.0-smoothstep(0.825,0.85,q.y))*front;
-    mask=max(middle,sides)*region;
+    // 참고 이미지처럼 이마 중앙에만 세로 무늬 세 개.
+    // 가운데는 길고, 양옆은 짧으며 둥근 끝으로 피부에 자연스럽게 스민다.
+    vec2 forehead=vec2(q.x,q.y);
+    vec2 halfForehead=vec2(abs(q.x),q.y);
+    float center=taperedStripe(forehead,vec2(0.0,0.655),vec2(0.0,0.805),0.010,0.017);
+    float sides=taperedStripe(halfForehead,vec2(0.064,0.704),vec2(0.094,0.790),0.008,0.014);
+    float front=smoothstep(0.055,0.19,q.z);
+    mask=max(center,sides)*front*0.64;
     dark=pow(brightness<0.16?mix(uBody,vec3(1.0),0.14):uBody*vec3(0.56,0.50,0.45),vec3(2.2));
   }else{
     vec2 f=vec2(abs(q.x),q.y);
