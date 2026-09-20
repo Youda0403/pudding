@@ -20,6 +20,7 @@ uniform vec3  uCam;      // 방위각, 고도, 거리
 uniform float uJiggle;   // 흔들림 세기 (0 이면 정지)
 uniform float uEye;      // 눈 종류 0 동글 / 1 올라간 / 2 내려간 / 3 반 / 4 웃는
 uniform float uMouth;    // 0 ω / 1 ^ / 2 일자 / 3 웃는 / 4 점 / 5 활짝
+uniform float uSpecies; // 선택한 종: 8 다람쥐, 9 호랑이
 uniform float uAnimal;   // 0 고양이 1 강아지 2 토끼 3 롭이어 4 곰 5 쥐 6 여우 7 햄스터
 
 // 색은 전부 sRGB(0~1). 조명에 넣기 전에 선형으로 바꾼다.
@@ -515,6 +516,44 @@ vec4 faceDecor(vec3 q){
   return vec4(mole,blush*uMarks.y,scar*uMarks.z,freckle*uMarks.w)*front;
 }
 
+// 표면색만 바꾸는 무늬: 거리장·그림자 계산을 늘리지 않는다.
+float taperedStripe(vec2 p,vec2 a,vec2 b,float wa,float wb){
+  vec2 v=b-a;
+  float t=clamp(dot(p-a,v)/dot(v,v),0.0,1.0);
+  return 1.0-smoothstep(-0.001,0.003,length(p-a-v*t)-mix(wa,wb,t));
+}
+vec3 animalCoat(vec3 base,vec3 q){
+  if(uSpecies<7.5)return base;
+  float brightness=dot(uBody,vec3(0.2126,0.7152,0.0722));
+  vec3 dark=pow(brightness<0.16?mix(uBody,vec3(1.0),0.14):uBody*0.32,vec3(2.2));
+  float mask=0.0;
+  if(uSpecies<8.5){
+    // 다람쥐: 이마에서 정수리, 등으로 이어지는 세 줄과 사이의 밝은 띠.
+    float front=smoothstep(-0.05,0.18,q.z);
+    float region=mix(1.0,smoothstep(0.635,0.685,q.y),front);
+    region*=1.0-smoothstep(0.84,0.91,q.y);
+    float x=abs(q.x);
+    mask=max(1.0-smoothstep(0.022,0.030,x),1.0-smoothstep(0.020,0.028,abs(x-0.135)));
+    float light=(1.0-smoothstep(0.020,0.029,abs(x-0.067)))*region;
+    base=mix(base,pow(mix(uBody,vec3(1.0),0.38),vec3(2.2)),light);
+    mask*=region;
+  }else{
+    vec2 f=vec2(abs(q.x),q.y);
+    float forehead=taperedStripe(f,vec2(0.0,0.622),vec2(0.0,0.783),0.012,0.016);
+    forehead=max(forehead,taperedStripe(f,vec2(0.0,0.764),vec2(0.095,0.756),0.016,0.003));
+    forehead=max(forehead,taperedStripe(f,vec2(0.0,0.710),vec2(0.126,0.694),0.015,0.003));
+    forehead=max(forehead,taperedStripe(f,vec2(0.0,0.653),vec2(0.105,0.638),0.014,0.003));
+    float cheek=taperedStripe(f,vec2(0.285,0.431),vec2(0.535,0.475),0.003,0.019);
+    cheek=max(cheek,taperedStripe(f,vec2(0.332,0.344),vec2(0.591,0.382),0.003,0.020));
+    cheek=max(cheek,taperedStripe(f,vec2(0.389,0.249),vec2(0.616,0.274),0.003,0.016));
+    float front=smoothstep(-0.03,0.22,q.z);
+    float back=(1.0-smoothstep(0.12,0.23,abs(sin(19.0*q.y+0.45*sin(8.0*q.x)))))
+      *smoothstep(0.08,0.17,q.y)*(1.0-smoothstep(0.75,0.86,q.y));
+    mask=mix(back,max(forehead,cheek),front);
+  }
+  return mix(base,dark,mask);
+}
+
 /* ---------------------------------------------------------------------
    7. 고양이 푸딩 전체
    --------------------------------------------------------------------- */
@@ -868,6 +907,7 @@ void main(){
       // 색과 굴곡이 정확히 같은 자리에 온다.
       vec3  q    = puddingSpace(p).xyz;
       float dBE  = sdBodyEars(q);
+      base=animalCoat(base,q);
 
       // 귓바퀴. 홈을 판 것과 같은 거리장을 쓰므로 색과 굴곡이 같은 자리에 온다.
       // 얇은 귀(토끼·쥐)는 홈이 깊어질 수 없어서, 색이 있어야 비로소 귀로 읽힌다.

@@ -9,7 +9,7 @@
   var DEFAULTS = {
     mode: 0,          // 0 완성 / 1 정면 실루엣 / 2 측면 실루엣
     jiggle: 0,        // 흔들림 세기
-    animal: 0,        // 0~7
+    animal: 0,        // 0~9
     eye: 0,           // 0~4
     mouth: 0,         // 0~5
     syrup: 0,         // 0 없음 / 1 접시에 웅덩이
@@ -71,7 +71,7 @@
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 
     var U = {};
-    ['uRes', 'uTime', 'uMode', 'uCam', 'uJiggle', 'uEye', 'uMouth', 'uAnimal',
+    ['uRes', 'uTime', 'uMode', 'uCam', 'uJiggle', 'uEye', 'uMouth', 'uAnimal', 'uSpecies',
      'uBody', 'uInk', 'uSyrupCol', 'uSyrup', 'uCherry', 'uCream', 'uSprinkle',
      'uPlate', 'uBg', 'uPlateStyle', 'uQuality', 'uMarks', 'uMole', 'uScar', 'uScarAngle', 'uMole2', 'uBgPattern'].forEach(function (name) {
       U[name] = gl.getUniformLocation(prog, name);
@@ -103,7 +103,9 @@
       gl.uniform1f(U.uJiggle, scene.jiggle);
       gl.uniform1f(U.uEye, scene.eye);
       gl.uniform1f(U.uMouth, scene.mouth);
-      gl.uniform1f(U.uAnimal, scene.animal);
+      // 새 종은 기존 귀·크림·스프링클 배치를 그대로 공유한다.
+      gl.uniform1f(U.uAnimal,scene.animal===8?7:scene.animal===9?4:scene.animal);
+      gl.uniform1f(U.uSpecies,scene.animal);
       gl.uniform1f(U.uSyrup, scene.syrup);
       gl.uniform1f(U.uCherry, scene.cherry);
       gl.uniform1f(U.uCream, scene.cream);
