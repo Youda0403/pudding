@@ -16,6 +16,7 @@
     cherry: 0,        // 0/1
     cream: 0,         // 0/1
     sprinkle: 0,      // 0/1
+    mole2: 0, mole2X: -0.38, mole2Y: 0.49, bgPattern: 0,
     mole: 0, blush: 0, scar: 0, freckles: 0,
     moleX: 0.43, moleY: 0.445, scarX: -0.50, scarY: 0.42, scarAngle: 0,
     plateStyle: 0, quality: 0,
@@ -72,7 +73,7 @@
     var U = {};
     ['uRes', 'uTime', 'uMode', 'uCam', 'uJiggle', 'uEye', 'uMouth', 'uAnimal',
      'uBody', 'uInk', 'uSyrupCol', 'uSyrup', 'uCherry', 'uCream', 'uSprinkle',
-     'uPlate', 'uBg', 'uPlateStyle', 'uQuality', 'uMarks', 'uMole', 'uScar', 'uScarAngle'].forEach(function (name) {
+     'uPlate', 'uBg', 'uPlateStyle', 'uQuality', 'uMarks', 'uMole', 'uScar', 'uScarAngle', 'uMole2', 'uBgPattern'].forEach(function (name) {
       U[name] = gl.getUniformLocation(prog, name);
     });
 
@@ -94,6 +95,8 @@
       gl.uniform1f(U.uQuality, scene.quality);
       gl.uniform4f(U.uMarks,scene.mole,scene.blush,scene.scar,scene.freckles);
       gl.uniform2f(U.uMole,scene.moleX,scene.moleY);
+      gl.uniform3f(U.uMole2,scene.mole2X,scene.mole2Y,scene.mole2);
+      gl.uniform1f(U.uBgPattern,scene.bgPattern);
       gl.uniform2f(U.uScar,scene.scarX,scene.scarY);
       gl.uniform1f(U.uScarAngle,scene.scarAngle*Math.PI/180);
       gl.uniform3f(U.uCam, scene.az, scene.el, scene.dist);

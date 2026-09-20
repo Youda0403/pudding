@@ -33,7 +33,7 @@
     bg:       ['#e5d6c3', '#f0dfe2', '#dbe7d5', '#d6e0ec', '#e6dcef', '#c9bdb0']
   };
   var MARKS = [
-    {key:'mole',label:'점'}, {key:'blush',label:'홍조'},
+    {key:'mole',label:'점 1'}, {key:'mole2',label:'점 2'}, {key:'blush',label:'홍조'},
     {key:'scar',label:'흉터'}, {key:'freckles',label:'주근깨'}
   ];
   var COLOR_ROWS = [
@@ -235,7 +235,7 @@
   function buildPositions(){
     var host=document.getElementById('markPositions');
     var fields=[];
-    [{key:'mole',name:'점'},{key:'scar',name:'흉터'}].forEach(function(mark){
+    [{key:'mole',name:'점 1'},{key:'mole2',name:'점 2'},{key:'scar',name:'흉터'}].forEach(function(mark){
       var group=document.createElement('fieldset');group.className='position';
       var legend=document.createElement('legend');legend.textContent=mark.name+' 위치';group.appendChild(legend);
       var inputs=[];
@@ -264,6 +264,7 @@
     buildToggles('toppings', TOPPINGS),
     buildToggles('faceDecor', MARKS),
     buildPositions(),
+    buildChips('bgPatterns', ['민무늬','둥근 별','둥근 하트'], 'bgPattern'),
     buildColors()
   ];
   function sync() { dirty=true; refreshers.forEach(function (f) { f(); }); }
@@ -375,14 +376,15 @@
       outputScene.quality=1;
       var startAz=scene.az;
       var rotate=motionMode==='rotate';
-      // 회전 4.8초/80프레임. 뾰잉은 미리보기와 같은 시간축으로 3초/60프레임.
-      var count=rotate?80:60;
+      // 회전 4.8초/80프레임. 뾰잉은 미리보기와 같은 시간축으로 2.5초/50프레임.
+      var count=rotate?80:50;
       var delay=rotate?6:5;
       var tmp=document.createElement('canvas');tmp.width=tmp.height=GIF_SIZE;
       var ctx=tmp.getContext('2d',{willReadFrequently:true});
       var frames=[];
       for(var i=0;i<count;i++){
         var pose=rotate?{time:i/count*Math.PI*4/2.4,amp:0.32}:poseAt(i*delay/100);
+        if(!rotate && i>44)pose.amp*=Math.max(0,(48-i)/4);
         outputScene.az=startAz+(rotate?i/count*Math.PI*2:0);
         outputScene.jiggle=pose.amp;
         outputScene.draw(pose.time);
