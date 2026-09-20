@@ -8,20 +8,21 @@
   // 기본값. 사이트의 초기 상태이자 프로토타입이 쓰는 값이다.
   var DEFAULTS = {
     mode: 0,          // 0 완성 / 1 정면 실루엣 / 2 측면 실루엣
-    jiggle: 1,        // 흔들림 세기
+    jiggle: 0,        // 흔들림 세기
     animal: 0,        // 0~7
     eye: 0,           // 0~4
-    mouth: 0,         // 0~3
+    mouth: 0,         // 0~5
     syrup: 0,         // 0 없음 / 1 접시에 웅덩이
     cherry: 0,        // 0/1
     cream: 0,         // 0/1
     sprinkle: 0,      // 0/1
+    plateStyle: 0, quality: 0,
     az: 0.40, el: 0.26, dist: 6.00,
     // 예전에 셰이더에 박혀 있던 색들. 조명 계산은 선형 공간에서 하므로
     // 그 선형 값을 sRGB 로 되돌린 값이다 (예: 눈 0.135 → 0x67).
     body:  '#f6e7c7',
     ink:   '#675347',
-    syrupCol: '#cb8b3c',
+    syrupCol: '#99501f',
     plate: '#faf9f7',
     bg:    '#e5d6c3'
   };
@@ -44,8 +45,9 @@
 
   function createScene(canvas) {
     var gl = canvas.getContext('webgl2', {
-      antialias: true,
-      preserveDrawingBuffer: true   // 저장할 때 캔버스를 다시 읽어야 한다
+      antialias: false,
+      powerPreference: 'low-power',
+      preserveDrawingBuffer: false   // 저장은 draw 직후 같은 작업에서 캡처한다
     });
     if (!gl) throw new Error('WebGL2를 쓸 수 없습니다.');
 
@@ -68,7 +70,7 @@
     var U = {};
     ['uRes', 'uTime', 'uMode', 'uCam', 'uJiggle', 'uEye', 'uMouth', 'uAnimal',
      'uBody', 'uInk', 'uSyrupCol', 'uSyrup', 'uCherry', 'uCream', 'uSprinkle',
-     'uPlate', 'uBg'].forEach(function (name) {
+     'uPlate', 'uBg', 'uPlateStyle', 'uQuality'].forEach(function (name) {
       U[name] = gl.getUniformLocation(prog, name);
     });
 
@@ -85,6 +87,8 @@
       gl.uniform2f(U.uRes, canvas.width, canvas.height);
       gl.uniform1f(U.uTime, t || 0);
       gl.uniform1f(U.uMode, scene.mode);
+      gl.uniform1f(U.uPlateStyle, scene.plateStyle);
+      gl.uniform1f(U.uQuality, scene.quality);
       gl.uniform3f(U.uCam, scene.az, scene.el, scene.dist);
       gl.uniform1f(U.uJiggle, scene.jiggle);
       gl.uniform1f(U.uEye, scene.eye);
@@ -100,7 +104,7 @@
       gl.uniform3fv(U.uPlate, rgb01(scene.plate));
       gl.uniform3fv(U.uBg, rgb01(scene.bg));
       gl.drawArrays(gl.TRIANGLES, 0, 3);
-      gl.finish();
+      // drawImage/readPixels synchronize only when exporting. Never stall every preview frame.
     };
 
     return scene;

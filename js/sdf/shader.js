@@ -19,17 +19,19 @@ uniform float uMode;     // 0 완성 렌더 / 1 정면 실루엣 / 2 측면 실�
 uniform vec3  uCam;      // 방위각, 고도, 거리
 uniform float uJiggle;   // 흔들림 세기 (0 이면 정지)
 uniform float uEye;      // 눈 종류 0 동글 / 1 올라간 / 2 내려간 / 3 반 / 4 웃는
-uniform float uMouth;    // 입 종류 0 ω / 1 ^ / 2 일자 / 3 웃는
+uniform float uMouth;    // 0 ω / 1 ^ / 2 일자 / 3 웃는 / 4 점 / 5 활짝
 uniform float uAnimal;   // 0 고양이 1 강아지 2 토끼 3 롭이어 4 곰 5 쥐 6 여우 7 햄스터
 
 // 색은 전부 sRGB(0~1). 조명에 넣기 전에 선형으로 바꾼다.
 uniform vec3  uBody;     // 커스터드 색
-uniform vec3  uInk;      // 눈·입 색
+uniform vec3  uInk;      // 눈과 입의 공통 색
 uniform vec3  uSyrupCol; // 시럽(웅덩이) 색
 uniform float uSyrup;    // 0 없음 / 1 접시에 웅덩이
 uniform float uCherry;   // 0/1 체리
 uniform float uCream;    // 0/1 생크림
 uniform float uSprinkle; // 0/1 스프링클
+uniform float uPlateStyle; // 0 기본 / 1 꽃 / 2 타원 / 3 사각
+uniform float uQuality; // 0 미리보기 / 1 저장
 uniform vec3  uPlate;    // 접시 색
 uniform vec3  uBg;       // 배경 색
 
@@ -179,7 +181,7 @@ float sdDisc(vec3 p, float r, float h){
 //     + 아주 약한 위아래 숨쉬기. 젤리가 관성으로 출렁이는 모양이다.
 vec3 opJiggle(vec3 p, float t, float amp, out float lip){
   float w  = amp*sin(t*2.4);
-  float br = 1.0 + amp*0.45*sin(t*2.4 + 1.9);
+  float br = 1.0 + amp*0.55*sin(t*4.8); // t=0은 정지 모양, 루프 시작도 튀지 않게
   p.x -= w*p.y*p.y*1.70;
   p.z -= w*p.y*p.y*0.55;
   p.y /= br;
@@ -214,7 +216,9 @@ const float FIELD_LIP = 0.85;   // 눌림이 높이에 따라 변하는 만큼�
 // 앞뒤/좌우 비가 밑동 0.90 → 머리 위 0.72 로 줄어든다. 위로 갈수록 좌우로만
 // 남고 앞뒤로 얇아지는, 고양이 머리다운 단면이다.
 float bodyZScale(float y){
-  return mix(BODY_ZS, BODY_ZS_T, smoothstep(0.35, 0.73, y));
+  float t = clamp((y - 0.35)/0.38, 0.0, 1.0);
+  t = t*t*t*(t*(t*6.0 - 15.0) + 10.0); // C2: 단면 변화 시작/끝의 띠를 줄인다
+  return mix(BODY_ZS, BODY_ZS_T, t);
 }
 
 /* 몸통 — 바깥선에 접하는 타원체 하나. 이게 전부다.
@@ -303,9 +307,9 @@ void earSpec(out vec3 a, out float r1, out vec3 b, out float r2, out float fz, o
   } else if(uAnimal < 3.5){ // 롭이어 — 강아지보다 길고 굵게 늘어진 귀
     a=vec3(0.2300,0.8100,0.000); r1=0.100; b=vec3(0.7900,0.3000,0.000); r2=0.210; fz=0.46; k=0.030;
   } else if(uAnimal < 4.5){ // 곰 — 작고 동그란 귀
-    a=vec3(0.2850,0.8950,0.000); r1=0.155; b=vec3(0.3050,0.9500,0.000); r2=0.145; fz=0.85; k=0.022;
+    a=vec3(0.400,0.745,0.0); r1=0.185; b=vec3(0.400,0.746,0.0); r2=0.185; fz=0.68; k=0.016;
   } else if(uAnimal < 5.5){ // 쥐 — 크고 앞뒤로 얇은 원반 귀
-    a=vec3(0.3350,0.9000,0.000); r1=0.205; b=vec3(0.3550,0.9450,0.000); r2=0.195; fz=0.45; k=0.022;
+    a=vec3(0.395,0.875,0.0); r1=0.268; b=vec3(0.395,0.876,0.0); r2=0.268; fz=0.29; k=0.018;
   } else if(uAnimal < 6.5){ // 여우 — 고양이보다 크고 길쭉한 삼각 귀
     a=vec3(0.2182,0.2693,0.000); r1=0.4237; b=vec3(0.3150,1.1250,0.020); r2=0.125; fz=0.95; k=0.012;
   } else {                  // 햄스터 — 레퍼런스(다람쥐)보다 훨씬 작은, 실제 햄스터 같은 귀
@@ -319,7 +323,10 @@ float sdEars(vec3 q){
   vec3 e = vec3(abs(q.x), q.y, q.z);      // 좌우 대칭
   e.z /= fz;
   a.z /= fz; b.z /= fz;
-  return sdRoundCone(e, a, b, r1, r2);
+  // 동그란 귀는 축이 거의 0인 원뿔 대신 정확한 구로 만든다.
+  float d = (uAnimal > 3.5 && uAnimal < 5.5)
+    ? length(e - a) - r1 : sdRoundCone(e, a, b, r1, r2);
+  return d * min(fz, 1.0);
 }
 
 float earBlend(){
@@ -353,9 +360,9 @@ void earInner(out float si, out float dep, out float t0, out float t1, out float
   } else if(uAnimal < 3.5){ // 롭이어
     si=0.90; dep=0.40; t0=0.240; t1=0.870; kin=0.026; gap=-10.000;
   } else if(uAnimal < 4.5){ // 곰
-    si=0.76; dep=0.40; t0=0.000; t1=1.000; kin=0.022; gap=-10.000;
+    si=0.70; dep=0.65; t0=0.000; t1=1.000; kin=0.016; gap=-10.000;
   } else if(uAnimal < 5.5){ // 쥐
-    si=0.82; dep=0.46; t0=0.000; t1=1.000; kin=0.022; gap=-10.000;
+    si=0.80; dep=0.60; t0=0.000; t1=1.000; kin=0.013; gap=-10.000;
   } else if(uAnimal < 6.5){ // 여우
     si=0.92; dep=0.36; t0=0.760; t1=0.945; kin=0.018; gap=  0.080;
   } else {                  // 햄스터
@@ -381,7 +388,11 @@ float sdEarInner(vec3 q){
   // 아래까지 내려가(고양이·여우는 0.14) 볼을 타고 내려오는 자국이 된다.
   // 수평으로 자르면 끊긴 자리가 눈에 띄므로 몸통 거리장으로 자른다 —
   // 홈의 끝이 머리의 둥근 선을 따라간다. gap 이 음수면 잘리지 않는다.
-  return smax(sdRoundCone(e, ia, ib, si*ra, si*rb), gap - sdBody(q), 0.030);
+  float d = (uAnimal > 3.5 && uAnimal < 5.5)
+    ? length(e - ia) - si*ra : sdRoundCone(e, ia, ib, si*ra, si*rb);
+  d *= min(fz, 1.0);
+  if(gap < 0.0) return d;
+  return smax(d, gap - sdBody(q), 0.030);
 }
 
 float earInnerBlend(){
@@ -421,7 +432,7 @@ const float EYE_CUT = 0.500;   // 중심에서 자르는 선까지 (반지름 �
 float sdEye2(vec2 p){
   if(uEye < 0.5) return length(p) - EYE_R;                  // 동글
   if(uEye < 3.5){                                           // 올라간 / 내려간 / 반
-    float ang = (uEye < 1.5) ? 0.28 : (uEye < 2.5) ? -0.38 : 0.00;
+    float ang = (uEye < 1.5) ? -0.38 : (uEye < 2.5) ? 0.28 : 0.00;
     vec2  q   = rot(-ang)*p;                  // 자르는 선을 수평으로 눕힌다
     // 잘린 모서리도 칼처럼 서지 않게 살짝 둥글린다
     return smax(length(p) - EYE_R, q.y - EYE_CUT*EYE_R, 0.007);
@@ -433,16 +444,20 @@ float sdEye2(vec2 p){
   return sdArc2(vec2(p.x, -(p.y + 0.40*EYE_R)), 0.82*EYE_R, 0.32*EYE_R, 1.30);
 }
 
-/* 입 4종. 전부 좌우 대칭 좌표에서 오른쪽 절반만 그리면 된다.
+/* 입 6종. 좌우 대칭 좌표에서 오른쪽 절반만 그리면 된다.
      0 ω    아래로 열린 작은 원호. 대칭이라 반대쪽 반원이 생겨 ω 가 된다
      1 ^    가운데에서 바깥아래로 내려오는 직선
      2 일자 수평 직선
-     3 웃는 아래로 볼록한 넓은 원호 하나 (∪) */
+     3 웃는 작은 원호 (∪), 4 점, 5 속을 칠한 반달 */
 float sdMouth2(vec2 m){
   if(uMouth < 0.5) return sdArc2(m - vec2(0.034, 0.408), 0.032, 0.011, 1.83);
   if(uMouth < 1.5) return sdCapsule2(m, vec2(0.000, 0.432), vec2(0.050, 0.394), 0.011);
-  if(uMouth < 2.5) return sdCapsule2(m, vec2(0.000, 0.410), vec2(0.055, 0.410), 0.011);
-  return sdArc2(m - vec2(0.000, 0.450), 0.052, 0.012, 1.25);
+  if(uMouth < 2.5) return sdCapsule2(m, vec2(0.000, 0.388), vec2(0.038, 0.388), 0.008);
+  if(uMouth < 3.5) return sdArc2(m - vec2(0.000, 0.418), 0.037, 0.008, 1.18);
+  if(uMouth < 4.5) return length(m - vec2(0.0, 0.390)) - 0.017;
+  // 윗선이 평평하고 아래가 둥근, 속까지 칠해진 반달 입.
+  vec2 p = m - vec2(0.0, 0.400);
+  return smax(length(p/vec2(1.0,0.82)) - 0.042, p.y - 0.002, 0.006);
 }
 
 // 정면에서 본 얼굴 자국
@@ -461,29 +476,6 @@ float faceShell(vec3 q, float body){
 }
 float faceInk(vec3 q, float body){
   return smax(faceMark2D(q.xy), faceShell(q, body), 0.011);
-}
-
-/* 입 색. 눈은 사용자가 고른 색(uInk)을 그대로 쓰지만 입은 푸딩 색을 따라
-   가야 한다 — 다만 "따라간다" 를 그냥 곱하기로 어둡게 하면 연한 푸딩에선
-   흐린 회색이 되고 진한 푸딩에선 안 보인다.
-
-   그래서 두 단계다. 먼저 5.28 제곱(= 선형화 2.2 × 심화 2.4)으로 색을
-   깊게 만든다 — 작은 채널이 더 많이 떨어지므로 채도가 올라가 커스터드의
-   미색이 갈색 쪽으로 간다. 그다음 밝기를 0.0938(예전 기본 잉크 #675347 의
-   선형 휘도)로 맞춘다. 밝기를 고정하니 어떤 푸딩 색이든 어둡기는 늘
-   지금만큼이고, 달라지는 건 색기운뿐이다. 단 푸딩 자체가 그보다 어두우면
-   (진한 초콜릿색 같은) 고정 밝기가 오히려 몸통보다 밝아지므로, 그때는
-   몸통 휘도의 30% 로 따라 내려간다. */
-vec3 mouthInk(){
-  const vec3 W = vec3(0.2126, 0.7152, 0.0722);
-  vec3  bl = pow(uBody, vec3(2.2));            // 푸딩 색(선형)
-  vec3  dp = pow(bl,    vec3(2.4));            // 깊게 — 어두운 채널이 더 떨어져 채도가 오른다
-  float by = dot(bl, W);
-  float dy = max(dot(dp, W), 1e-4);
-  // 목표 밝기: 기본 잉크(#675347)의 휘도. 다만 푸딩이 그보다 어두우면
-  // 그 30% 로 내린다 — 안 그러면 진한 갈색 푸딩에서 입이 몸통보다 밝아진다.
-  float t  = min(0.0938, by*0.30);
-  return clamp(dp*(t/dy), 0.0, 1.0);
 }
 
 /* ---------------------------------------------------------------------
@@ -517,140 +509,96 @@ float sdBodyEars(vec3 q){
    것이 아니므로 작게, 생크림은 짜 올린 반죽이 밑에서 몸통과 이어지므로
    크게. 셋 다 sminExp 라 곡률이 끊기는 자리는 없다. */
 const vec3  CROWN   = vec3(0.0, 0.835, 0.0);
-const float CREAM_H = 0.186;   // 생크림 정점까지 높이 — 체리를 그 위에 얹을 때 쓴다
+const float CREAM_H = 0.300;
 
-/* 생크림 — 짤주머니로 짠 덩어리 하나를 톡 올린 것.
-
-   '머리에서 자라난 혹' 과 '따로 짜서 올린 덩어리' 를 가르는 건 두 가지다.
-
-   하나, 몸통과 녹이는 k. 크게 두면(예전 0.040) 목이 두꺼워져 머리가
-   부풀어 오른 것처럼 보인다. 0.010 까지 줄이면 닿는 자리에 또렷한
-   경계선이 남아 비로소 '얹힌 것' 이 된다. 밑동 구의 중심을 정수리보다
-   위에 두는 것도 같은 이유다 — 가장 굵은 자리가 닿는 자리보다 위에
-   있어야 살짝 처마처럼 걸쳐 보인다(닿는 원의 반지름 0.081 < 최대 0.090).
-
-   둘, 코일이 보여야 한다. 반지름이 줄어드는 구를 나선 위에 늘어놓되
-   서로 녹이는 k 를 작게(0.014) 둔다. 구 사이의 골이 그대로 남아 짤주머니
-   자국이 된다 — k 를 키우면 골이 메워져 그냥 매끈한 원뿔이다.
-   위로 갈수록 각을 2.4 rad 씩 돌려 감아 올라가게 했다. */
+/* 짤주머니의 별깍지: 연속된 한 덩어리의 여섯 골이 위로 꼬인다.
+   구를 겹치지 않는다. 축 근처에서는 골을 없애 atan의 특이점을 피한다. */
 float sdCream(vec3 q){
   if(uCream < 0.5) return 1e5;
-  vec3  c = CROWN + vec3(0.0, 0.040, 0.0);        // 밑동 코일의 중심
-  float d = sdSphere(q - (c + vec3( 0.0260, 0.000,  0.0000)), 0.090);
-  d = smin(d, sdSphere(q - (c + vec3(-0.0177, 0.058,  0.0162)), 0.073), 0.014);
-  d = smin(d, sdSphere(q - (c + vec3( 0.0018, 0.106, -0.0199)), 0.056), 0.014);
-  d = smin(d, sdSphere(q - (c + vec3( 0.0091, 0.146,  0.0119)), 0.040), 0.014);
-  d = smin(d, sdSphere(q - (c + vec3(-0.0079, 0.178, -0.0014)), 0.024), 0.014);
-  return d;
+  vec3 p = q - CROWN;
+  float t = clamp(p.y/0.300, 0.0, 1.0);
+  p.x -= 0.045*t*t;
+  float r = length(p.xz);
+  float a = atan(p.z, p.x);
+  float flute = 1.0 + 0.19*cos(6.0*a - t*3.8)*smoothstep(0.008, 0.055, r);
+  p.xz /= flute;
+  return sdRoundCone(p, vec3(0.0,0.072,0.0), vec3(0.0,0.275,0.0), 0.190, 0.022)/1.9;
 }
 
 /* 체리. 구 하나 + 가는 줄기 하나. 둘을 색칠할 때는 따로 알아야 하므로
    geometry 용 합친 값과, 색칠용 각 부위 값을 나눠 둔다.
    생크림이 있으면 그 꼭대기에, 없으면 정수리에 바로 앉는다. */
 vec3 cherryCenter(){
-  return CROWN + vec3(0.0, (uCream > 0.5 ? CREAM_H : 0.0) + 0.036, 0.0);
+  return CROWN + vec3(uCream > 0.5 ? 0.040 : 0.0, (uCream > 0.5 ? CREAM_H : 0.0) + 0.056, 0.0);
 }
 float sdCherryBody(vec3 q){
   if(uCherry < 0.5) return 1e5;
-  return sdSphere(q - cherryCenter(), 0.052);
+  return sdSphere(q - cherryCenter(), 0.073);
 }
 float sdCherryStem(vec3 q){
   if(uCherry < 0.5) return 1e5;
   vec3 c  = cherryCenter();
-  vec3 s0 = c + vec3(0.0, 0.044, 0.0);
-  vec3 s1 = s0 + vec3(0.030, 0.068, -0.014);
-  return sdCapsule3(q, s0, s1, 0.008);
+  vec3 s0 = c + vec3(0.0, 0.060, 0.0);
+  vec3 s1 = s0 + vec3(0.037, 0.088, -0.018);
+  return sdCapsule3(q, s0, s1, 0.010);
 }
 float sdCherry(vec3 q){
   return smin(sdCherryBody(q), sdCherryStem(q), 0.010);
 }
 
-/* 스프링클 — 생크림 둘레에 톡톡 얹힌 막대 여섯 개.
-
-   전엔 이마에 구를 흩뿌렸는데 두 가지가 문제였다.
-
-   하나, 파묻혔다. onFace(c, lift) 의 lift 는 x·z 방향으로만 밀어내는데
-   (얼굴 자국을 얕게 파려고 만든 함수다) 이마처럼 높은 자리에서는 진짜
-   법선이 거의 +y 라 실제로 떠오르는 높이가 lift 보다 훨씬 작다. 반지름
-   0.017 짜리 구를 0.010 띄웠으니 절반 넘게 몸통에 잠긴 채였다.
-
-   둘, 구는 스프링클로 안 보인다. 실제 스프링클은 가는 막대다.
-
-   그래서 캡슐(막대)로 바꾸고, 자리는 오프라인에서 미리 풀어 상수로 박았다.
-   몸통도 생크림도 동물과 무관하게 고정된 모양이라 그 표면 위의 점은
-   계산할 필요 없이 그냥 상수다 — 레이마칭 안에서 법선을 뽑는 비용이 0 이다.
-   각 점은 해당 거리장이 +0.0045 인 자리(반지름 0.0075 의 막대가 살짝만
-   잠기고 대부분 드러나는 높이)에 있고, 축은 그 자리의 접평면 위에 눕혔다.
-
-   생크림이 있으면 크림 표면에, 없으면 정수리 둘레의 몸통 표면에 앉는다
-   (uCream 은 0/1 이라 mix 는 그냥 둘 중 하나를 고르는 것이다). */
-const float SPR_R = 0.010;     // 막대 반지름 (길이는 그 4배쯤)
-
-/* id 는 몇 번째 막대가 가장 가까운지다. 색은 막대마다 하나여야 하므로
-   (예전처럼 좌표로 색을 고르면 막대 하나에 줄무늬가 생긴다) 색칠할 때
-   이 번호로 고른다. */
+// SPRINKLE_GEOMETRY — 생성된 표면 좌표가 아래에 들어간다.
+// 각 동물의 이마 표면에서 실제 법선 방향으로 띄운 좌표.
+const vec3 SPR_A[48]=vec3[48](vec3(-0.214183,0.734222,0.314354),vec3(0.175503,0.770465,0.281410),vec3(-0.035022,0.786935,0.203291),vec3(0.036710,0.717830,0.285829),vec3(-0.273012,0.710165,0.330347),vec3(0.283634,0.695204,0.337336),vec3(-0.222445,0.730839,0.222651),vec3(0.199681,0.761819,0.193675),vec3(-0.037198,0.789664,0.200247),vec3(0.038110,0.719456,0.283957),vec3(-0.278943,0.706592,0.219875),vec3(0.287870,0.693632,0.229549),vec3(-0.222431,0.730877,0.222251),vec3(0.199597,0.761926,0.193253),vec3(-0.037246,0.790009,0.198353),vec3(0.038126,0.719484,0.283738),vec3(-0.278957,0.706574,0.219476),vec3(0.287874,0.693614,0.229171),vec3(-0.222443,0.730848,0.222630),vec3(0.199653,0.761830,0.193558),vec3(-0.037216,0.789651,0.200342),vec3(0.038111,0.719458,0.283955),vec3(-0.278935,0.706598,0.219918),vec3(0.287867,0.693642,0.229591),vec3(-0.222491,0.730846,0.220744),vec3(0.199373,0.761759,0.190172),vec3(-0.037473,0.790593,0.196790),vec3(0.038143,0.719508,0.283651),vec3(-0.278884,0.706469,0.218190),vec3(0.287901,0.693630,0.227941),vec3(-0.222501,0.730819,0.220730),vec3(0.199438,0.761715,0.190305),vec3(-0.037428,0.790398,0.197315),vec3(0.038142,0.719506,0.283662),vec3(-0.278889,0.706431,0.217991),vec3(0.287916,0.693597,0.227746),vec3(-0.216670,0.731631,0.291194),vec3(0.194329,0.764580,0.273860),vec3(-0.033554,0.782110,0.210839),vec3(0.037138,0.718314,0.285332),vec3(-0.275989,0.708837,0.299285),vec3(0.284626,0.693816,0.304748),vec3(-0.222398,0.730841,0.223944),vec3(0.199816,0.761969,0.196229),vec3(-0.037070,0.789658,0.199748),vec3(0.038091,0.719437,0.283928),vec3(-0.279094,0.706573,0.220418),vec3(0.287891,0.693484,0.230063));
+const vec3 SPR_B[48]=vec3[48](vec3(-0.167738,0.728472,0.303688),vec3(0.174213,0.728762,0.305143),vec3(-0.072233,0.805905,0.179638),vec3(0.083169,0.726567,0.277513),vec3(-0.257302,0.668694,0.348715),vec3(0.235928,0.699752,0.334608),vec3(-0.176252,0.740891,0.230966),vec3(0.168392,0.746814,0.226839),vec3(-0.075075,0.803220,0.174063),vec3(0.084463,0.725180,0.272883),vec3(-0.262525,0.681855,0.257592),vec3(0.243486,0.711016,0.235193),vec3(-0.176216,0.740876,0.230511),vec3(0.168333,0.746709,0.226343),vec3(-0.075026,0.803174,0.171832),vec3(0.084460,0.725215,0.272587),vec3(-0.262543,0.681876,0.257219),vec3(0.243501,0.711018,0.234842),vec3(-0.176247,0.740900,0.230930),vec3(0.168414,0.746836,0.226774),vec3(-0.075102,0.803199,0.174168),vec3(0.084464,0.725180,0.272878),vec3(-0.262520,0.681853,0.257631),vec3(0.243476,0.711012,0.235221),vec3(-0.176366,0.741261,0.228990),vec3(0.168902,0.747425,0.224378),vec3(-0.075136,0.802915,0.169704),vec3(0.084465,0.725223,0.272444),vec3(-0.262729,0.682226,0.256338),vec3(0.243609,0.711304,0.233404),vec3(-0.176393,0.741277,0.229014),vec3(0.168887,0.747422,0.224457),vec3(-0.075138,0.802970,0.170410),vec3(0.084466,0.725220,0.272462),vec3(-0.262779,0.682304,0.256231),vec3(0.243668,0.711383,0.233207),vec3(-0.169093,0.729083,0.285371),vec3(0.159472,0.732331,0.280859),vec3(-0.069755,0.807766,0.192529),vec3(0.083719,0.725780,0.276476),vec3(-0.256215,0.668398,0.315949),vec3(0.236950,0.699360,0.305188),vec3(-0.176137,0.740552,0.232287),vec3(0.167911,0.746217,0.228446),vec3(-0.074904,0.803370,0.173582),vec3(0.084447,0.725202,0.272885),vec3(-0.262472,0.681666,0.257933),vec3(0.243558,0.710894,0.236018));
 float sdSprinkles(vec3 q, out float id){
-  id = 0.0;
-  if(uSprinkle < 0.5) return 1e5;
-  float t = step(0.5, uCream);
-  vec3 p, a;
-  float d = 1e5, e;
-
-  p = mix(vec3(+0.1765, +0.6451, +0.3208), vec3(+0.1059, +0.9050, +0.0461), t);
-  a = mix(vec3(+0.0221, +0.0057, -0.0124), vec3(-0.0137, +0.0027, +0.0219), t);
-  e = sdCapsule3(q, p - a, p + a, SPR_R);
-  if(e < d){ d = e; id = 0.0; }
-
-  p = mix(vec3(-0.1514, +0.6704, +0.3026), vec3(-0.0660, +0.8851, +0.0584), t);
-  a = mix(vec3(+0.0241, -0.0029, +0.0094), vec3(-0.0198, +0.0076, -0.0150), t);
-  e = sdCapsule3(q, p - a, p + a, SPR_R);
-  if(e < d){ d = e; id = 1.0; }
-
-  p = mix(vec3(+0.0202, +0.7058, +0.2874), vec3(+0.0180, +0.9050, -0.0919), t);
-  a = mix(vec3(+0.0057, +0.0179, -0.0180), vec3(+0.0258, +0.0027, -0.0014), t);
-  e = sdCapsule3(q, p - a, p + a, SPR_R);
-  if(e < d){ d = e; id = 2.0; }
-
-  p = mix(vec3(-0.2572, +0.6049, +0.3312), vec3(-0.0114, +0.9681, +0.0878), t);
-  a = mix(vec3(+0.0244, +0.0089, +0.0020), vec3(-0.0259, +0.0007, +0.0019), t);
-  e = sdCapsule3(q, p - a, p + a, SPR_R);
-  if(e < d){ d = e; id = 3.0; }
-
-  p = mix(vec3(+0.2672, +0.5898, +0.3419), vec3(-0.0829, +0.9681, -0.0142), t);
-  a = mix(vec3(+0.0219, -0.0135, +0.0034), vec3(+0.0113, +0.0007, -0.0234), t);
-  e = sdCapsule3(q, p - a, p + a, SPR_R);
-  if(e < d){ d = e; id = 4.0; }
-
-  p = mix(vec3(-0.0554, +0.5946, +0.3929), vec3(+0.0550, +1.0086, -0.0393), t);
-  a = mix(vec3(+0.0169, +0.0149, -0.0129), vec3(+0.0086, +0.0007, +0.0245), t);
-  e = sdCapsule3(q, p - a, p + a, SPR_R);
-  if(e < d){ d = e; id = 5.0; }
-
-  return d;
+  id=0.0;if(uSprinkle<0.5)return 1e5;
+  float d=1e5,e;
+  int animal=int(clamp(uAnimal,0.0,7.0));
+  for(int i=0;i<6;i++){
+    e=sdCapsule3(q,SPR_A[animal*6+i],SPR_B[animal*6+i],0.011);
+    if(e<d){d=e;id=float(i);}
+  }
+  if(uCream>0.5){
+e=sdCapsule3(q,vec3(0.158305,0.931858,0.105922),vec3(0.204057,0.941656,0.095209),0.011);if(e<d){d=e;id=6.0;}
+e=sdCapsule3(q,vec3(-0.147147,0.962114,0.178231),vec3(-0.101317,0.951604,0.187881),0.011);if(e<d){d=e;id=7.0;}
+e=sdCapsule3(q,vec3(-0.004722,1.042576,-0.186635),vec3(-0.047196,1.031163,-0.167409),0.011);if(e<d){d=e;id=8.0;}
+e=sdCapsule3(q,vec3(-0.005258,1.074096,0.098869),vec3(-0.024304,1.091254,0.058289),0.011);if(e<d){d=e;id=9.0;}
+e=sdCapsule3(q,vec3(0.041496,1.114501,-0.050869),vec3(0.087006,1.117487,-0.035907),0.011);if(e<d){d=e;id=10.0;}
+  }
+ return d;
 }
-float sdSprinkles(vec3 q){ float id; return sdSprinkles(q, id); }
+float sdSprinkles(vec3 q){float id;return sdSprinkles(q,id);}
 
-/* ---------------------------------------------------------------------
-   6.6 접시 웅덩이
+/* 시럽은 접시에 살짝 볼록하게 고인 진한 소스다. 젖은 하이라이트를 받을
+   실제 곡면과 얇아지는 가장자리가 있으며, 고정된 접시 위에 놓인다. */
+float syrupRadius(vec3 p){
+  float a = atan(p.z, p.x);
+  return 0.85 + 0.028*sin(3.0*a + 0.6) + 0.018*sin(5.0*a + 2.1);
+}
+float sdSyrupPool(vec3 p){
+  if(uSyrup < 0.5) return 1e5;
+  float r = length(p.xz)/syrupRadius(p);
+  // 표면 높이는 중앙 0.034, 가장자리 0.010. 끝은 부드럽게 얇아진다.
+  float top = 0.010 + 0.024*(1.0 - smoothstep(0.55,1.0,r));
+  return smax((r - 1.0)*0.78, abs(p.y - (top-0.006)*0.5) - (top+0.006)*0.5, 0.015);
+}
 
-   덩어리를 만들지 않는다. 순전히 칠하는 값이다 — 그래서 테두리가 생길
-   수가 없다. 처음엔 얕은 원반(sdDisc 변형)을 접시 위에 얹었는데, 판이
-   두께를 가지는 한 가장자리에는 반드시 모서리(테두리)가 생긴다. 둥글게
-   굴려도 '테를 두른 웅덩이' 로 보이지, 액체로는 안 보였다.
-
-   그래서 지오메트리를 아예 없앴다. 접시 표면에 닿은 그 점이 웅덩이
-   반경 안이면 커스터드에 시럽을 칠했던 것과 같은 방법(Beer-Lambert)으로
-   접시 색 위에 시럽색을 얇게 얹는다 — 투명하고, 두께가 0 인 판이니
-   솟아오른 모서리 자체가 있을 수 없다. 가장자리는 smoothstep 하나로
-   부드럽게 사라진다. */
-float syrupPoolMask(vec3 p){
-  if(uSyrup < 0.5) return 0.0;
-  float a  = atan(p.z, p.x);
-  float rr = 0.760 + 0.058*sin(3.0*a + 0.6)
-                    + 0.032*sin(5.0*a + 2.1)
-                    + 0.018*sin(8.0*a + 4.0);
-  float r  = length(p.xz);
-  return 1.0 - smoothstep(rr - 0.045, rr, r);
+// 접시 외곽까지의 2D 거리. 0 기본 / 1 꽃 / 2 타원 / 3 둥근 사각.
+float plateOutline(vec2 p){
+  if(uPlateStyle < 0.5) return length(p) - 1.29;
+  if(uPlateStyle < 1.5){
+    float a = atan(p.y,p.x);
+    return (length(p) - 1.255 - 0.050*cos(10.0*a))*0.85;
+  }
+  if(uPlateStyle < 2.5) return (length(p/vec2(1.40,1.12)) - 1.0)*1.12;
+  vec2 q = abs(p) - vec2(0.76,0.74);
+  return length(max(q,0.0)) + min(max(q.x,q.y),0.0) - 0.28;
+}
+float sdPlate(vec3 p){
+  float edge = plateOutline(p.xz);
+  float rim = 0.052*smoothstep(-0.27,-0.075,edge);
+  vec2 d = vec2(edge+0.012, abs(p.y - (rim-0.038)*0.5) - (rim+0.038)*0.5 + 0.012);
+  return length(max(d,0.0)) + min(max(d.x,d.y),0.0) - 0.012;
 }
 
 float sdCatPudding(vec3 p){
@@ -659,8 +607,7 @@ float sdCatPudding(vec3 p){
 
   float d = sdBodyEars(q);
 
-  // 정수리 위 토핑. 생크림은 밑에서부터 짜 올라간 반죽이니 몸통과 크게
-  // 녹이고, 체리·스프링클은 위에 얹힌 것이니 작게 녹인다.
+  // 토핑은 각각 작은 블렌드로 붙여 형태와 경계를 남긴다.
   d = sminExp(d, sdCream(q), 0.010);
   d = sminExp(d, sdSprinkles(q), 0.004);
   d = sminExp(d, sdCherry(q), 0.012);
@@ -668,30 +615,42 @@ float sdCatPudding(vec3 p){
   // 얼굴을 미세하게 파낸다 (모서리 없이).
   d = opSmoothSub(faceInk(q, d), d, 0.017);
 
-  d *= FIELD_LIP * sp.w;                     // 왜곡 여유 + 흔들림 보정 (한 번에)
 
   // 접시에 눌려 평평하게 잘린 바닥.
   // 평면과의 교집합도 smax 로 해야 밑동 테두리가 칼처럼 서지 않는다.
   // 접시에 닿는 밑동이 말려 들어가는 정도. 레퍼런스에서 잰 값 —
   // 바닥에서 0.05 높이까지 옆선이 0.037 만큼 안으로 말려 들어간다.
-  d = smax(d, -p.y + 0.003, 0.090);
-  return d;
+  // 보정 전 같은 축척에서 밑면을 둥글린다. 흔들림 세기에 따라 밑동이
+  // 바뀌던 단차를 방지하고, C2 블렌드로 곡률 변화도 완화한다.
+  float floorD = -p.y + 0.003;
+  float h = max(0.095 - abs(d-floorD),0.0)/0.095;
+  d = max(d,floorD) + h*h*h*0.095/6.0;
+  return d * FIELD_LIP * sp.w;
 }
 
 /* ---------------------------------------------------------------------
-   8. 장면 — x: 거리, y: 재질(0 푸딩, 1 접시 — 접시 위 웅덩이는 지오메트리가
-      없으므로 재질 번호를 새로 쓰지 않는다. 셰이딩 단계에서 접시 표면에
-      바로 색을 칠한다)
+   8. 장면 — x: 거리, y: 재질(0 푸딩, 1 접시, 2 시럽)
    --------------------------------------------------------------------- */
 vec2 map(vec3 p){
   vec2 res = vec2(sdCatPudding(p), 0.0);
   if(uMode > 0.5) return res;                 // 실루엣 검증 모드는 푸딩만
 
-  // 접시. 원기둥을 0.006 만큼 부풀려(=거리에서 빼서) 테두리를 둥글린다.
-  float plate = smin(sdDisc(p - vec3(0.0, -0.012, 0.0), 1.294, 0.010) - 0.006,
-                     sdDisc(p - vec3(0.0, -0.040, 0.0), 1.154, 0.014) - 0.006, 0.03);
+  float syrup = sdSyrupPool(p);
+  if(syrup < res.x) res = vec2(syrup, 2.0);
+  float plate = sdPlate(p);
   if(plate < res.x) res = vec2(plate, 1.0);
   return res;
+}
+
+// 음영 보조선에는 작은 얼굴 홈/스프링클을 재계산하지 않는다.
+// 1픽셀보다 작은 장식까지 48회씩 계산하던 비용을 없앤다.
+float shadeDistance(vec3 p){
+  vec4 sp = puddingSpace(p);
+  vec3 q = sp.xyz;
+  float d = sdBodyEars(q);
+  d = min(d,sdCream(q));
+  d = min(d,sdCherryBody(q));
+  return max(d,-p.y) * FIELD_LIP * sp.w;
 }
 
 vec3 calcNormal(vec3 p){
@@ -702,21 +661,29 @@ vec3 calcNormal(vec3 p){
 }
 
 vec2 rayMarch(vec3 ro, vec3 rd){
-  float t = 0.0, m = -1.0;
-  for(int i = 0; i < 192; i++){
-    vec2 h = map(ro + rd*t);
-    if(abs(h.x) < 0.0005*t + 0.00035){ m = h.y; break; }
-    t += h.x*0.76;                            // 왜곡이 있으므로 보수적으로
-    if(t > 12.0) break;
+  // 빈 공간을 건너뛰고 장면을 감싸는 구에 들어온 자리부터 시작한다.
+  vec3 oc = ro - vec3(0.0,0.65,0.0);
+  float b = dot(oc,rd);
+  float disc = b*b - dot(oc,oc) + 1.80*1.80;
+  if(disc < 0.0) return vec2(0.0,-1.0);
+  float nearT = max(0.0,-b-sqrt(disc));
+  float farT = -b+sqrt(disc);
+  float t=nearT,m=-1.0;
+  for(int i=0;i<256;i++){
+    vec2 h=map(ro+rd*t);
+    if(abs(h.x)<0.00035*t+0.00025){m=h.y;break;}
+    t+=max(h.x*0.76,0.0001);
+    if(t>farT)break;
   }
-  if(t > 12.0) m = -1.0;
-  return vec2(t, m);
+  if(t>farT)m=-1.0;
+  return vec2(t,m);
 }
 
 float softShadow(vec3 ro, vec3 rd, float k){
   float res = 1.0, t = 0.03;
-  for(int i = 0; i < 48; i++){
-    float h = map(ro + rd*t).x;
+  for(int i = 0; i < 24; i++){
+    if(uQuality < 0.5 && i >= 14) break;
+    float h = shadeDistance(ro + rd*t);
     res = min(res, k*h/t);
     t += clamp(h, 0.012, 0.16);
     if(res < 0.02 || t > 3.2) break;
@@ -726,9 +693,9 @@ float softShadow(vec3 ro, vec3 rd, float k){
 
 float calcAO(vec3 p, vec3 n){
   float occ = 0.0, sca = 1.0;
-  for(int i = 0; i < 5; i++){
-    float h = 0.012 + 0.11*float(i)/4.0;
-    occ += (h - map(p + n*h).x)*sca;
+  for(int i = 0; i < 3; i++){
+    float h = 0.020 + 0.15*float(i)/2.0;
+    occ += (h - shadeDistance(p + n*h))*sca;
     sca *= 0.82;
   }
   return clamp(1.0 - 1.6*occ, 0.0, 1.0);
@@ -736,12 +703,9 @@ float calcAO(vec3 p, vec3 n){
 
 // 얇은 곳일수록 빛이 통과해 보이는 느낌 (가짜 SSS). 푸딩의 반투명함.
 float translucency(vec3 p, vec3 n){
-  float t = 0.0;
-  for(int i = 1; i <= 5; i++){
-    float h = 0.055*float(i);
-    t += max(0.0, h + sdCatPudding(p - n*h))/h;
-  }
-  return clamp(t/5.0, 0.0, 1.0);
+  // 한 번의 두께 근사. 얇은 귀에 빛이 비치는 효과는 유지한다.
+  float h = 0.16;
+  return clamp((h + shadeDistance(p - n*h))/h,0.0,1.0);
 }
 
 vec3 skyColor(vec3 d){
@@ -769,7 +733,7 @@ void main(){
   // 렌즈. 레퍼런스 도면은 망원(거의 직교)으로 찍혀 있다. 짧은 렌즈로 보면
   // 앞쪽이 부풀고 세로로 길어져, 같은 형태라도 폭/높이가 1.17 → 1.02 로
   // 달라 보인다. 거리에 비례해 화각을 좁혀 레퍼런스와 같은 조건으로 본다.
-  float zoom = 0.80*dist;
+  float zoom = 0.68*dist; // 새 접시가 회전할 때도 가장자리를 담는 여백
   if(uMode > 0.5){ ta = vec3(0.0, 0.56, 0.0); ro = ta + vec3(0.0, 0.0, 5.0); }
   if(uMode > 1.5){ ro = ta + vec3(5.0, 0.0, 0.0); }
 
@@ -848,7 +812,7 @@ void main(){
       float cm = 1.0 - smoothstep(0.0, 0.016, sdCream(q));
       base  = mix(base, pow(vec3(1.000, 0.988, 0.962), vec3(2.2)), cm);
 
-      // 스프링클 — 위치로 세 가지 색을 번갈아 고른다(알마다 좌표가 다르므로).
+      // 막대 id로 색을 골라 막대 하나에 여러 색이 섞이지 않게 한다.
       float spId;
       float sp    = 1.0 - smoothstep(0.005, 0.011, sdSprinkles(q, spId));
       float spHue = mod(spId, 3.0);
@@ -863,14 +827,13 @@ void main(){
       base  = mix(base, pow(vec3(0.78, 0.075, 0.115), vec3(2.2)), chB);
       base  = mix(base, pow(vec3(0.36, 0.42, 0.16), vec3(2.2)), chS);
 
-      /* 눈과 입은 같은 껍질에서 따로 뽑는다. 파낸 모양(faceInk)은 그대로고
-         색칠만 둘로 갈린다 — 눈은 고른 색, 입은 푸딩 색에서 끌어낸 색. */
+      /* 눈과 입은 같은 껍질에 새기고, 사용자가 고른 잉크 색을 공유한다. */
       float shl  = faceShell(q, dBE);
       vec2  fm   = vec2(abs(q.x), q.y);
       float eyeM = 1.0 - smoothstep(0.0, 0.012, smax(sdEye2(fm - EYE_POS), shl, 0.011));
       float mthM = 1.0 - smoothstep(0.0, 0.012, smax(sdMouth2(fm), shl, 0.011));
       base = mix(base, pow(uInk, vec3(2.2)), eyeM);
-      base = mix(base, mouthInk(), mthM);
+      base = mix(base, pow(uInk, vec3(2.2)), mthM);
       float mask = max(eyeM, mthM);
 
       gloss  = 1.0 - mask*0.55;
@@ -879,22 +842,16 @@ void main(){
       gloss  = mix(gloss, 2.30, chB);      // 체리는 반질반질
       envAmt = mix(envAmt, 0.28, chB);
       wet    = chB;                        // 체리에만 얇은 하이라이트 밴드를 더한다
+    } else if(hit.y < 1.5){
+      base = pow(uPlate, vec3(2.2));
+      gloss = 0.70; envAmt = 0.12;
     } else {
-      base = pow(uPlate, vec3(2.2));                   // 도자기
-      gloss = 0.55; envAmt = 0.10;
-
-      /* 접시 위의 시럽 웅덩이. 지오메트리가 없으므로 여기서 칠하는 게
-         전부다 — 그래서 테두리가 있을 수 없다. 커스터드에 얹던 것과
-         같은 Beer-Lambert 로, 접시의 흰색이 옅게 비쳐 올라온다. */
-      float pm = syrupPoolMask(p);
-      if(pm > 0.001){
-        vec3 tint  = pow(uSyrupCol, vec3(2.2));
-        vec3 trans = pow(max(tint, vec3(0.02)), vec3(mix(0.35, 1.0, pm)));
-        base   = mix(base, base*trans + tint*0.10*pm, pm);
-        gloss  = mix(gloss, 2.4, pm);
-        envAmt = mix(envAmt, 0.30, pm);
-        wet    = max(wet, pm);
-      }
+      // 농도가 있는 캐러멜: 중심은 짙고 가장자리에서만 접시가 비친다.
+      float rr = length(p.xz)/syrupRadius(p);
+      float depth = 1.0 - smoothstep(0.67,1.0,rr);
+      vec3 tint = pow(uSyrupCol,vec3(2.2));
+      base = mix(tint*1.20 + vec3(0.018),tint*0.54,depth);
+      gloss = 2.5; envAmt = 0.34; wet = 1.0;
     }
 
     vec3 lin = vec3(0.0);
@@ -911,6 +868,10 @@ void main(){
     // 좁고 센 spe 쪽만 더한다.
     col += spe *sha*1.05*wet;
     col += fre *0.16*wet*skyColor(reflect(rd, n));
+    // 길쭉한 소프트박스가 곡면에 비치는 윤기.
+    vec3 ref = reflect(rd,n);
+    float strip = exp(-pow((ref.x+0.25)/0.12,2.0)-pow((ref.z+0.90)/0.22,2.0)-pow((ref.y-0.34)/0.13,2.0));
+    col += vec3(1.0,0.94,0.82)*strip*wet*0.55;
   }
 
   if(!isBg){

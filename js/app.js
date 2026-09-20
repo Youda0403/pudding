@@ -10,7 +10,7 @@
 
   var ANIMALS = ['고양이', '강아지', '토끼', '롭이어', '곰', '쥐', '여우', '햄스터'];
   var EYES    = ['동글', '올라간', '내려간', '반', '웃는'];
-  var MOUTHS  = ['ω', '^', '一', '웃는'];
+  var MOUTHS  = ['ω', '^', '一', '웃는', '·', '활짝'];
 
   // 꾸미기는 서로 배타적이지 않다 — 체리와 생크림을 같이 올릴 수 있다.
   // 그래서 하나만 고르는 chip 이 아니라 각자 켜고 끄는 토글이다.
@@ -29,12 +29,12 @@
   var SWATCHES = {
     body:     ['#f6e7c7', '#f8d3d8', '#d7e7bf', '#e0bb93', '#cfe4f0', '#ddd0ee'],
     ink:      ['#675347', '#3a2f2a', '#4a6fb0', '#7a5aa8', '#c0566a', '#3f8a63'],
-    syrupCol: ['#cb8b3c', '#70492f', '#e76a85', '#8faf57', '#9b72c4', '#4f9bc7'],
+    syrupCol: ['#99501f', '#70492f', '#e76a85', '#8faf57', '#9b72c4', '#4f9bc7'],
     bg:       ['#e5d6c3', '#f0dfe2', '#dbe7d5', '#d6e0ec', '#e6dcef', '#c9bdb0']
   };
   var COLOR_ROWS = [
     { key: 'body',     name: '푸딩' },
-    { key: 'ink',      name: '눈' },
+    { key: 'ink',      name: '눈·입' },
     { key: 'syrupCol', name: '시럽' },
     { key: 'bg',       name: '배경' }
   ];
@@ -48,59 +48,72 @@
     return;
   }
 
-  /* ---------------------------------------------------------------
-     흔들림
-
-     셰이더의 흔들림은 세기(uJiggle)와 시각(uTime) 두 개로 정해진다.
-     세기는 눌린 직후가 가장 크고 지수적으로 잦아든다. 시각은 누를 때마다
-     0 으로 되돌린다 — 셰이더가 sin(t·2.4) 로 기울이므로, 되돌리지 않으면
-     하필 sin 이 0 인 순간에 눌렸을 때 아무 일도 안 일어난 것처럼 보인다.
-     0 에서 시작하면 늘 '기울었다가 반대로 넘어갔다가' 잦아든다.
-
-     페이지를 열 때도 시계가 0 이라 한 번 통통 튀면서 나타난다.
-     --------------------------------------------------------------- */
-  var IDLE = 0.10;      // 가만히 있을 때
-  var TAP  = 3.40;      // 눌렀을 때 더해지는 세기
-  var FALL = 1.10;      // 잦아드는 속도 (시계 단위)
-  var SPEED = 3.0;      // 초 → 시계. 셰이더의 sin(t*2.4) 가 이만큼 빨라진다
-
-  var clock = 0;
-  var last = (global.performance || Date).now();
+  /* 정지 상태에서는 다시 그리지 않는다. 터치 후 실제 경과 시간으로
+     감쇠시켜 느린 기기에서도 첫 동작이 수초 동안 늘어지지 않는다. */
   var exporting = false;
+  var dirty = true;
+  var bounceStart = null;
+  var lastDraw = 0;
+  var previewLimit = 360;
+  var slowFrames = 0;
+  var motionMode = 'rotate';
+  var reducedMotion = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  function bounce() { clock = 0; }
-
-  function fit() {
+  function bounce() {
     if (exporting) return;
-    // 레이마칭이라 픽셀 수가 곧 비용이다. 선명하되 너무 커지지 않게 640 에서 끊는다.
-    var dpr = Math.min(global.devicePixelRatio || 1, 2);
-    var w = Math.min(Math.round(canvas.clientWidth * dpr) || 640, 640);
-    if (canvas.width !== w) { canvas.width = w; canvas.height = w; }
+    bounceStart = reducedMotion ? null : performance.now();
+    lastDraw = 0;
+    dirty = true;
   }
-
+  function fit() {
+    var size = Math.min(Math.round(canvas.clientWidth * Math.min(global.devicePixelRatio || 1, 1.25)) || 300, previewLimit);
+    if (canvas.width !== size) { canvas.width = size; canvas.height = size; dirty = true; }
+  }
+  function poseAt(seconds) {
+    // 최대 기울기보다 복원감이 중심인, 3초 안에 끝나는 뾰잉.
+    if (seconds >= 2.8) return {time: 0, amp: 0};
+    return {time: seconds * 3.5, amp: 4.8 * Math.exp(-seconds * 1.9) * Math.pow(1-seconds/2.8, 2)};
+  }
   function frame(now) {
-    var dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    if (!exporting) {
-      clock += dt * SPEED;
-      scene.jiggle = IDLE + TAP * Math.exp(-clock * FALL);
-      fit();
-      scene.draw(clock);
-    }
     global.requestAnimationFrame(frame);
+    if (exporting || document.hidden) return;
+    fit();
+    var active = bounceStart !== null;
+    if (!dirty && !active) return;
+    if (now-lastDraw < 1000/30) return;
+    // RAF의 타임스탬프는 첫 셰이더 준비 작업보다 앞설 수도 있다.
+    var elapsed = active ? Math.max(0,(performance.now()-bounceStart)/1000) : 3;
+    var pose = poseAt(elapsed);
+    if (elapsed >= 2.8) bounceStart = null;
+    scene.jiggle = pose.amp;
+    scene.quality = 0;
+    scene.draw(pose.time);
+    if (active && lastDraw) {
+      var frameCost = now-lastDraw;
+      if (frameCost > 65) slowFrames++; else slowFrames = Math.max(0,slowFrames-1);
+      if (slowFrames >= 3 && previewLimit > 200) { previewLimit -= 40; slowFrames=0; }
+    }
+    lastDraw=now;
+    dirty=false;
   }
+  global.addEventListener('resize', function(){dirty=true;});
+  document.addEventListener('visibilitychange', function(){
+    bounceStart=null;dirty=true;lastDraw=0;
+  });
 
   /* ---------------------------------------------------------------
      드래그로 돌리기 · 누르면 통통
      --------------------------------------------------------------- */
   var drag = null;
   canvas.addEventListener('pointerdown', function (e) {
+    if (exporting) return;
     drag = { x: e.clientX, y: e.clientY };
     canvas.setPointerCapture(e.pointerId);
     bounce();
   });
   canvas.addEventListener('pointermove', function (e) {
-    if (!drag) return;
+    if (!drag || exporting) return;
+    dirty = true;
     scene.az -= (e.clientX - drag.x) * 0.007;
     scene.el = Math.max(-0.20, Math.min(0.95, scene.el + (e.clientY - drag.y) * 0.005));
     drag = { x: e.clientX, y: e.clientY };
@@ -219,10 +232,11 @@
     buildChips('animals', ANIMALS, 'animal'),
     buildChips('eyes', EYES, 'eye'),
     buildChips('mouths', MOUTHS, 'mouth'),
+    buildChips('plates', ['기본', '꽃잎', '타원', '둥근 사각'], 'plateStyle'),
     buildToggles('toppings', TOPPINGS),
     buildColors()
   ];
-  function sync() { refreshers.forEach(function (f) { f(); }); }
+  function sync() { dirty=true; refreshers.forEach(function (f) { f(); }); }
 
   function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
 
@@ -230,6 +244,7 @@
     scene.animal = Math.floor(Math.random() * ANIMALS.length);
     scene.eye    = Math.floor(Math.random() * EYES.length);
     scene.mouth  = Math.floor(Math.random() * MOUTHS.length);
+    scene.plateStyle = Math.floor(Math.random()*4);
     // 꾸미기는 다 같이 켜면 정신없으니 하나씩 확률을 낮게 둔다.
     TOPPINGS.forEach(function (t) { scene[t.key] = Math.random() < 0.32 ? 1 : 0; });
     COLOR_ROWS.forEach(function (row) { scene[row.key] = pick(SWATCHES[row.key]); });
@@ -237,96 +252,99 @@
     bounce();
   });
 
-  /* ---------------------------------------------------------------
-     GIF 저장
-
-     방위각을 한 바퀴 돌리면서 프레임을 모은다. 흔들림은 한 바퀴에 정확히
-     두 번 진동하도록 시각을 넣어 주므로 첫 프레임과 끝 프레임이 이어진다.
-     (셰이더가 sin(t*2.4) 를 쓰므로 t 는 2π·2/2.4 까지 간다)
-
-     한 프레임씩 그리고 setTimeout 으로 넘겨 화면이 멈추지 않게 한다.
-     --------------------------------------------------------------- */
-  // 크기·프레임 수·dither 는 그대로 용량이 된다. 지금 값이 대략 500KB 다.
-  // (dither 0 이면 396KB 지만 배경에 동심원 띠가 보이고, 3 이면 600KB)
-  var GIF_FRAMES = 24;
+  /* GIF는 별도 장면으로 고정된 설정을 캡처한다. 인코딩은 worker에서
+     수행하고, 완료/실패 어느 쪽이든 버튼과 미리보기를 복원한다. */
   var GIF_SIZE = 300;
-  var GIF_DELAY = 6;          // 1/100초 단위 → 24 × 60ms = 1.44초
   var GIF_DITHER = 2;
-
   var busy = document.getElementById('busy');
   var busyBar = document.getElementById('busyBar');
   var busyText = document.getElementById('busyText');
   var saveBtn = document.getElementById('save');
+  var notice = document.getElementById('notice');
+  var modeButtons = Array.prototype.slice.call(document.querySelectorAll('[data-motion]'));
+  modeButtons.forEach(function(b){
+    b.addEventListener('click',function(){
+      motionMode=b.dataset.motion;
+      modeButtons.forEach(function(el){el.setAttribute('aria-pressed',String(el===b));});
+    });
+  });
 
   function progress(ratio, text) {
     busyBar.style.width = Math.round(ratio * 100) + '%';
-    if (text) busyText.textContent = text;
+    if(text) busyText.textContent=text;
   }
+  function encodeFrames(frames, delay) {
+    var opts={width:GIF_SIZE,height:GIF_SIZE,frames:frames,delay:delay,dither:GIF_DITHER,loop:0};
+    return new Promise(function(resolve,reject){
+      var worker;
+      try {worker=new Worker('js/gif-worker.js');}
+      catch(e){reject(new Error('GIF 저장을 시작하지 못했어요. 새로고침 후 다시 시도해 주세요.'));return;}
+      var timer=setTimeout(function(){worker.terminate();reject(new Error('저장 시간이 너무 길어졌어요. 다시 시도해 주세요.'));},90000);
+      function end(){clearTimeout(timer);worker.terminate();}
+      worker.onmessage=function(e){
+        end();
+        if(e.data.error) reject(new Error(e.data.error)); else resolve(new Uint8Array(e.data.bytes));
+      };
+      worker.onerror=function(){end();reject(new Error('GIF를 만들지 못했어요. 다시 시도해 주세요.'));};
+      worker.postMessage(opts,frames.map(function(f){return f.buffer;}));
+    });
+  }
+  function nextTask(){return new Promise(function(resolve){setTimeout(resolve,0);});}
 
-  function saveGif(done) {
-    if (exporting) return;
-    exporting = true;
-    saveBtn.disabled = true;
-    busy.hidden = false;
-    progress(0, 'GIF 만드는 중…');
-
-    var keep = { w: canvas.width, h: canvas.height, az: scene.az, jiggle: scene.jiggle };
-    canvas.width = GIF_SIZE;
-    canvas.height = GIF_SIZE;
-
-    var tmp = document.createElement('canvas');
-    tmp.width = GIF_SIZE;
-    tmp.height = GIF_SIZE;
-    var ctx = tmp.getContext('2d', { willReadFrequently: true });
-
-    var frames = [];
-    var i = 0;
-
-    function shoot() {
-      var t = i / GIF_FRAMES;
-      scene.az = keep.az + t * Math.PI * 2;
-      scene.jiggle = 0.55;
-      scene.draw(t * Math.PI * 2 * 2 / 2.4);
-      ctx.drawImage(canvas, 0, 0);
-      frames.push(ctx.getImageData(0, 0, GIF_SIZE, GIF_SIZE).data);
-      i++;
-      progress(i / GIF_FRAMES * 0.75);
-      if (i < GIF_FRAMES) return global.setTimeout(shoot, 0);
-      global.setTimeout(encode, 0);
+  async function saveGif(done) {
+    if(exporting) return;
+    exporting=true;
+    notice.textContent='';
+    var controls=Array.prototype.slice.call(document.querySelectorAll('button,input'));
+    controls.forEach(function(el){el.disabled=true;});
+    busy.hidden=false;
+    progress(0,'GIF 만드는 중…');
+    var outputCanvas=document.createElement('canvas');
+    outputCanvas.width=outputCanvas.height=GIF_SIZE;
+    var outputScene;
+    try {
+      outputScene=PUDDING.createScene(outputCanvas);
+      Object.keys(PUDDING.SDF_DEFAULTS).forEach(function(k){outputScene[k]=scene[k];});
+      outputScene.quality=1;
+      var startAz=scene.az;
+      var rotate=motionMode==='rotate';
+      // 한 바퀴 4.8초. 뾰잉은 제자리에서 3.2초, 끝에 짧은 쉼.
+      var count=rotate?60:40;
+      var delay=8;
+      var tmp=document.createElement('canvas');tmp.width=tmp.height=GIF_SIZE;
+      var ctx=tmp.getContext('2d',{willReadFrequently:true});
+      var frames=[];
+      for(var i=0;i<count;i++){
+        var pose=rotate?{time:i/count*Math.PI*4/2.4,amp:0.32}:poseAt(i*delay/100);
+        outputScene.az=startAz+(rotate?i/count*Math.PI*2:0);
+        outputScene.jiggle=pose.amp;
+        outputScene.draw(pose.time);
+        ctx.drawImage(outputCanvas,0,0);
+        frames.push(ctx.getImageData(0,0,GIF_SIZE,GIF_SIZE).data);
+        progress((i+1)/count*0.8,'움직임 만드는 중…');
+        await nextTask();
+      }
+      progress(0.85,'색을 정리하고 저장하는 중…');
+      var bytes=await encodeFrames(frames,delay);
+      var blob=new Blob([bytes],{type:'image/gif'});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');a.href=url;
+      a.download=rotate?'tangle-pudding-rotate.gif':'tangle-pudding-bounce.gif';
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(function(){URL.revokeObjectURL(url);},30000);
+      notice.textContent='GIF를 저장했어요.';
+      if(done) done(bytes);
+      return bytes;
+    } catch(err){
+      console.error(err);
+      notice.textContent=err.message || '저장하지 못했어요. 다시 시도해 주세요.';
+      return null;
+    } finally {
+      if(outputScene) {var ext=outputScene.gl.getExtension('WEBGL_lose_context');if(ext)ext.loseContext();}
+      exporting=false;busy.hidden=true;
+      controls.forEach(function(el){el.disabled=false;});
+      bounceStart=null;dirty=true;lastDraw=0;
     }
-
-    function encode() {
-      progress(0.8, '색 고르는 중…');
-      global.setTimeout(function () {
-        var bytes = PUDDING.encodeGif({
-          width: GIF_SIZE, height: GIF_SIZE,
-          frames: frames, delay: GIF_DELAY, dither: GIF_DITHER, loop: 0
-        });
-        progress(1, '받는 중…');
-
-        canvas.width = keep.w;
-        canvas.height = keep.h;
-        scene.az = keep.az;
-        scene.jiggle = keep.jiggle;
-        exporting = false;
-        saveBtn.disabled = false;
-        busy.hidden = true;
-
-        var blob = new Blob([bytes], { type: 'image/gif' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'tangle-pudding.gif';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        global.setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
-
-        if (done) done(bytes);
-      }, 30);
-    }
-
-    shoot();
   }
 
   saveBtn.addEventListener('click', function () { saveGif(); });
@@ -336,5 +354,5 @@
   global.requestAnimationFrame(frame);
 
   // 헤드리스 점검용
-  global.PUDDING_APP = { scene: scene, saveGif: saveGif, bounce: bounce };
+  global.PUDDING_APP = { scene: scene, saveGif: saveGif, bounce: bounce, redraw: function(){dirty=true;} };
 })(window);
