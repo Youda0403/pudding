@@ -528,15 +528,16 @@ vec3 animalCoat(vec3 base,vec3 q){
   vec3 dark=pow(brightness<0.16?mix(uBody,vec3(1.0),0.14):uBody*0.32,vec3(2.2));
   float mask=0.0;
   if(uSpecies<8.5){
-    // 다람쥐: 이마에서 정수리, 등으로 이어지는 세 줄과 사이의 밝은 띠.
-    float front=smoothstep(-0.05,0.18,q.z);
-    float region=mix(1.0,smoothstep(0.635,0.685,q.y),front);
-    region*=1.0-smoothstep(0.84,0.91,q.y);
-    float x=abs(q.x);
-    mask=max(1.0-smoothstep(0.022,0.030,x),1.0-smoothstep(0.020,0.028,abs(x-0.135)));
-    float light=(1.0-smoothstep(0.020,0.029,abs(x-0.067)))*region;
-    base=mix(base,pow(mix(uBody,vec3(1.0),0.38),vec3(2.2)),light);
-    mask*=region;
+    // 앞이마의 부드러운 곡선 무늬. 양끝을 가늘게 하고 등에는 칠하지 않는다.
+    float t=clamp((q.y-0.625)/0.225,0.0,1.0);
+    float envelope=pow(max(0.0,sin(3.14159265*t)),0.72);
+    float front=smoothstep(0.025,0.16,q.z);
+    float x=abs(q.x),curve=0.092+0.052*t+0.014*sin(3.14159265*t);
+    float middle=1.0-smoothstep(0.010*envelope,0.010*envelope+0.005,x);
+    float sides=1.0-smoothstep(0.019*envelope,0.019*envelope+0.006,abs(x-curve));
+    float region=smoothstep(0.625,0.646,q.y)*(1.0-smoothstep(0.825,0.85,q.y))*front;
+    mask=max(middle,sides)*region;
+    dark=pow(brightness<0.16?mix(uBody,vec3(1.0),0.14):uBody*vec3(0.56,0.50,0.45),vec3(2.2));
   }else{
     vec2 f=vec2(abs(q.x),q.y);
     float forehead=taperedStripe(f,vec2(0.0,0.622),vec2(0.0,0.783),0.012,0.016);
@@ -546,10 +547,8 @@ vec3 animalCoat(vec3 base,vec3 q){
     float cheek=taperedStripe(f,vec2(0.285,0.431),vec2(0.535,0.475),0.003,0.019);
     cheek=max(cheek,taperedStripe(f,vec2(0.332,0.344),vec2(0.591,0.382),0.003,0.020));
     cheek=max(cheek,taperedStripe(f,vec2(0.389,0.249),vec2(0.616,0.274),0.003,0.016));
-    float front=smoothstep(-0.03,0.22,q.z);
-    float back=(1.0-smoothstep(0.12,0.23,abs(sin(19.0*q.y+0.45*sin(8.0*q.x)))))
-      *smoothstep(0.08,0.17,q.y)*(1.0-smoothstep(0.75,0.86,q.y));
-    mask=mix(back,max(forehead,cheek),front);
+    float front=smoothstep(0.025,0.22,q.z);
+    mask=max(forehead,cheek)*front;
   }
   return mix(base,dark,mask);
 }
@@ -606,7 +605,7 @@ float sdCream(vec3 q){
    geometry 용 합친 값과, 색칠용 각 부위 값을 나눠 둔다.
    생크림이 있으면 그 꼭대기에, 없으면 정수리에 바로 앉는다. */
 vec3 cherryCenter(){
-  if(uCream>0.5)return creamOrigin()+vec3(0.040,CREAM_H+0.023,0.0)*creamScale();
+  if(uCream>0.5)return creamOrigin()+vec3(0.040,CREAM_H+0.003,0.0)*creamScale();
   bool fox=uAnimal>5.5&&uAnimal<6.5;
   return CROWN+(fox?vec3(0.0,0.115,0.100):vec3(0.0,0.061,0.0));
 }
