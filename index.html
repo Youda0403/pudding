@@ -6,12 +6,10 @@
 <meta name="theme-color" content="#fdf6ec" />
 <title data-i18n="title">탱글 푸딩 만들기</title>
 <script>
-/* 새로고침할 때마다 최신 스타일을 요청한다. HTML과 그 외 UI는 변경하지 않는다. */
+/* HTML을 그리기 전에 최신 CSS를 파서에 삽입해, 스타일 없는 글씨가
+   먼저 나타나는 깜빡임을 막는다. JS 파일의 캐시 갱신 방식은 유지한다. */
 var assetVersion = Date.now();
-var stylesheet = document.createElement('link');
-stylesheet.rel = 'stylesheet';
-stylesheet.href = 'styles.css?v=' + assetVersion;
-document.head.appendChild(stylesheet);
+document.write('<link rel="stylesheet" href="styles.css?v=' + assetVersion + '">');
 </script>
 </head>
 <body>
