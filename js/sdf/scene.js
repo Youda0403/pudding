@@ -17,7 +17,7 @@
     cream: 0,         // 0/1
     sprinkle: 0,      // 0/1
     mole: 0, blush: 0, scar: 0, freckles: 0,
-    moleX: 0.43, moleY: 0.445, scarX: -0.50, scarY: 0.42,
+    moleX: 0.43, moleY: 0.445, scarX: -0.50, scarY: 0.42, scarAngle: 0,
     plateStyle: 0, quality: 0,
     az: 0.40, el: 0.26, dist: 6.00,
     // 예전에 셰이더에 박혀 있던 색들. 조명 계산은 선형 공간에서 하므로
@@ -72,7 +72,7 @@
     var U = {};
     ['uRes', 'uTime', 'uMode', 'uCam', 'uJiggle', 'uEye', 'uMouth', 'uAnimal',
      'uBody', 'uInk', 'uSyrupCol', 'uSyrup', 'uCherry', 'uCream', 'uSprinkle',
-     'uPlate', 'uBg', 'uPlateStyle', 'uQuality', 'uMarks', 'uMole', 'uScar'].forEach(function (name) {
+     'uPlate', 'uBg', 'uPlateStyle', 'uQuality', 'uMarks', 'uMole', 'uScar', 'uScarAngle'].forEach(function (name) {
       U[name] = gl.getUniformLocation(prog, name);
     });
 
@@ -95,6 +95,7 @@
       gl.uniform4f(U.uMarks,scene.mole,scene.blush,scene.scar,scene.freckles);
       gl.uniform2f(U.uMole,scene.moleX,scene.moleY);
       gl.uniform2f(U.uScar,scene.scarX,scene.scarY);
+      gl.uniform1f(U.uScarAngle,scene.scarAngle*Math.PI/180);
       gl.uniform3f(U.uCam, scene.az, scene.el, scene.dist);
       gl.uniform1f(U.uJiggle, scene.jiggle);
       gl.uniform1f(U.uEye, scene.eye);

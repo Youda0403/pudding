@@ -240,20 +240,20 @@
       var legend=document.createElement('legend');legend.textContent=mark.name+' 위치';group.appendChild(legend);
       var inputs=[];
       [{axis:'X',name:'좌우',min:-85,max:85,step:1},
-       {axis:'Y',name:'높이',min:24,max:65,step:1}].forEach(function(item){
+       {axis:'Y',name:'높이',min:24,max:65,step:1}].concat(mark.key==='scar'?[{axis:'Angle',name:'회전',min:-180,max:180,step:1}]:[]).forEach(function(item){
         var label=document.createElement('label');
         var title=document.createElement('span');title.textContent=item.name;label.appendChild(title);
         var input=document.createElement('input');input.type='range';
         input.id=mark.key+item.axis;input.min=item.min;input.max=item.max;input.step=item.step;
         input.setAttribute('aria-label',mark.name+' '+item.name);
-        input.addEventListener('input',function(){scene[mark.key+item.axis]=Number(input.value)/100;dirty=true;});
-        label.appendChild(input);group.appendChild(label);inputs.push({input:input,key:mark.key+item.axis});
+        input.addEventListener('input',function(){scene[mark.key+item.axis]=Number(input.value)/(item.axis==='Angle'?1:100);dirty=true;});
+        label.appendChild(input);group.appendChild(label);inputs.push({input:input,key:mark.key+item.axis,scale:item.axis==='Angle'?1:100});
       });
       var reset=document.createElement('button');reset.type='button';reset.className='position-reset';reset.textContent='위치 초기화';
       reset.addEventListener('click',function(){inputs.forEach(function(x){scene[x.key]=PUDDING.SDF_DEFAULTS[x.key];});sync();});
       group.appendChild(reset);host.appendChild(group);fields.push({group:group,key:mark.key,inputs:inputs});
     });
-    return function(){fields.forEach(function(f){f.group.hidden=!scene[f.key];f.inputs.forEach(function(x){x.input.value=scene[x.key]*100;});});};
+    return function(){fields.forEach(function(f){f.group.hidden=!scene[f.key];f.inputs.forEach(function(x){x.input.value=scene[x.key]*x.scale;});});};
   }
 
   var refreshers = [
@@ -375,14 +375,14 @@
       outputScene.quality=1;
       var startAz=scene.az;
       var rotate=motionMode==='rotate';
-      // 회전 4.8초/80프레임. 뾰잉은 감쇠를 압축해 1.8초/36프레임.
-      var count=rotate?80:36;
+      // 회전 4.8초/80프레임. 뾰잉은 미리보기와 같은 시간축으로 3초/60프레임.
+      var count=rotate?80:60;
       var delay=rotate?6:5;
       var tmp=document.createElement('canvas');tmp.width=tmp.height=GIF_SIZE;
       var ctx=tmp.getContext('2d',{willReadFrequently:true});
       var frames=[];
       for(var i=0;i<count;i++){
-        var pose=rotate?{time:i/count*Math.PI*4/2.4,amp:0.32}:poseAt(i*delay/100*(2.8/1.5));
+        var pose=rotate?{time:i/count*Math.PI*4/2.4,amp:0.32}:poseAt(i*delay/100);
         outputScene.az=startAz+(rotate?i/count*Math.PI*2:0);
         outputScene.jiggle=pose.amp;
         outputScene.draw(pose.time);
