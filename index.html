@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
 <meta name="theme-color" content="#fdf6ec" />
-<title>탱글 푸딩 만들기</title>
+<title data-i18n="title">탱글 푸딩 만들기</title>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -14,66 +14,68 @@
      많이 누르는 버튼(랜덤·저장)은 엄지가 닿는 아래에. -->
 
 <header class="hd">
-  <h1>탱글 푸딩</h1>
+  <h1 data-i18n="heading">탱글 푸딩</h1>
+  <button type="button" id="languageToggle" class="lang-btn" data-i18n="language.button" data-i18n-aria="language.next" aria-label="영어로 전환">EN</button>
 </header>
 
 <section class="stage">
   <div class="frame">
-    <canvas id="view" width="640" height="640" aria-label="푸딩 미리보기"></canvas>
+    <canvas id="view" width="640" height="640" data-i18n-aria="canvas.label" aria-label="푸딩 미리보기"></canvas>
     <div class="busy" id="busy" hidden>
       <div class="busy-box">
-        <p id="busyText">GIF 만드는 중…</p>
+        <p id="busyText" data-i18n="progress.gifPreparing">GIF 만드는 중…</p>
         <div class="bar"><i id="busyBar"></i></div>
       </div>
     </div>
   </div>
-  <p class="tip">톡 누르면 흔들리고, 끌면 돌아가요</p>
+  <p class="tip" data-i18n="tip">톡 누르면 흔들리고, 끌면 돌아가요</p>
 </section>
 
 <main class="panel" id="panel">
-  <h2>동물</h2>
+  <h2 data-i18n="section.animals">동물</h2>
   <div class="chips" id="animals"></div>
 
-  <h2>눈</h2>
+  <h2 data-i18n="section.eyes">눈</h2>
   <div class="chips" id="eyes"></div>
 
-  <h2>입</h2>
+  <h2 data-i18n="section.mouths">입</h2>
   <div class="chips" id="mouths"></div>
 
-  <h2>얼굴 꾸미기</h2>
+  <h2 data-i18n="section.faceDecor">얼굴 꾸미기</h2>
   <div class="chips" id="faceDecor"></div>
   <div class="positions" id="markPositions"></div>
 
-  <h2>꾸미기</h2>
+  <h2 data-i18n="section.toppings">꾸미기</h2>
   <div class="chips" id="toppings"></div>
 
-  <h2>접시</h2>
+  <h2 data-i18n="section.plates">접시</h2>
   <div class="chips" id="plates"></div>
 
-  <h2>배경 패턴</h2>
+  <h2 data-i18n="section.bgPatterns">배경 패턴</h2>
   <div class="chips" id="bgPatterns"></div>
 
-  <h2>색</h2>
+  <h2 data-i18n="section.colors">색</h2>
   <div class="colors" id="colors"></div>
 
-  <h2>저장할 움직임</h2>
+  <h2 data-i18n="section.gifModes">저장할 움직임</h2>
   <div class="chips" id="gifModes">
-    <button type="button" class="chip" data-motion="rotate" aria-pressed="true">천천히 한 바퀴</button>
-    <button type="button" class="chip" data-motion="bounce" aria-pressed="false">제자리 뾰잉</button>
+    <button type="button" class="chip" data-i18n="motion.rotate" data-motion="rotate" aria-pressed="true">천천히 한 바퀴</button>
+    <button type="button" class="chip" data-i18n="motion.bounce" data-motion="bounce" aria-pressed="false">제자리 뾰잉</button>
   </div>
   <p class="foot" id="notice" role="status" aria-live="polite"></p>
 </main>
 
 <footer class="acts">
-  <button type="button" class="btn ghost" id="random">랜덤</button>
-  <button type="button" class="btn" id="savePng">PNG 저장</button>
-  <button type="button" class="btn go" id="save">GIF 저장</button>
+  <button type="button" class="btn ghost" data-i18n="action.random" id="random">랜덤</button>
+  <button type="button" class="btn" data-i18n="action.savePng" id="savePng">PNG 저장</button>
+  <button type="button" class="btn go" data-i18n="action.saveGif" id="save">GIF 저장</button>
 </footer>
 
 <script src="js/color.js"></script>
 <script src="js/gif.js"></script>
 <script src="js/sdf/shader.js"></script>
 <script src="js/sdf/scene.js"></script>
+<script src="js/i18n.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

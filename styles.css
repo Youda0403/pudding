@@ -60,6 +60,25 @@ body {
   font-size: 20px;
   letter-spacing: -0.02em;
 }
+/* Only the language switch is new; keep the title centered. */
+.hd { position: relative; }
+.lang-btn {
+  position: absolute;
+  right: var(--gutter);
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 44px;
+  min-height: 40px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
 
 /* ---------- 2) 미리보기 (고정) ---------- */
 

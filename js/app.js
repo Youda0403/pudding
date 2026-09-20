@@ -7,6 +7,7 @@
   'use strict';
 
   var PUDDING = global.PUDDING;
+  var I18N = global.PUDDING_I18N;
 
   var ANIMALS = ['고양이', '강아지', '토끼', '롭이어', '곰', '쥐', '여우', '햄스터'];
   var EYES    = ['동글', '올라간', '내려간', '반', '웃는'];
@@ -48,7 +49,9 @@
   try {
     scene = PUDDING.createScene(canvas);
   } catch (err) {
-    document.querySelector('.stage').textContent = 'WebGL2를 쓸 수 없는 브라우저예요.';
+    var stage = document.querySelector('.stage');
+    stage.dataset.i18n = 'errors.webgl';
+    stage.textContent = I18N.t('errors.webgl');
     return;
   }
 
@@ -135,7 +138,8 @@
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip';
-      b.textContent = label;
+      b.dataset.i18n = hostId + '.' + i;
+      b.textContent = I18N.t(b.dataset.i18n);
       b.addEventListener('click', function () {
         scene[key] = i;
         sync();
@@ -159,7 +163,8 @@
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip';
-      b.textContent = item.label;
+      b.dataset.i18n = hostId + '.' + item.key;
+      b.textContent = I18N.t(b.dataset.i18n);
       b.addEventListener('click', function () {
         scene[item.key] = scene[item.key] ? 0 : 1;
         sync();
@@ -184,7 +189,8 @@
 
       var name = document.createElement('span');
       name.className = 'name';
-      name.textContent = row.name;
+      name.dataset.i18n = 'color.' + row.key;
+      name.textContent = I18N.t(name.dataset.i18n);
       el.appendChild(name);
 
       // 색동그라미와 '직접 고르기' 는 한 줄로 묶어 두고, 좁으면 줄바꿈시킨다
@@ -212,6 +218,8 @@
 
       var pick = document.createElement('input');
       pick.type = 'color';
+      pick.dataset.i18nAria = 'colorPick.' + row.key;
+      pick.setAttribute('aria-label', I18N.t(pick.dataset.i18nAria));
       pick.className = 'pick';
       pick.value = scene[row.key];
       pick.addEventListener('input', function () {
@@ -237,19 +245,19 @@
     var fields=[];
     [{key:'mole',name:'점 1'},{key:'mole2',name:'점 2'},{key:'scar',name:'흉터'}].forEach(function(mark){
       var group=document.createElement('fieldset');group.className='position';
-      var legend=document.createElement('legend');legend.textContent=mark.name+' 위치';group.appendChild(legend);
+      var legend=document.createElement('legend');legend.dataset.i18n='position.'+mark.key;legend.textContent=I18N.t(legend.dataset.i18n);group.appendChild(legend);
       var inputs=[];
       [{axis:'X',name:'좌우',min:-85,max:85,step:1},
        {axis:'Y',name:'높이',min:24,max:65,step:1}].concat(mark.key==='scar'?[{axis:'Angle',name:'회전',min:-180,max:180,step:1}]:[]).forEach(function(item){
         var label=document.createElement('label');
-        var title=document.createElement('span');title.textContent=item.name;label.appendChild(title);
+        var title=document.createElement('span');title.dataset.i18n='axis.'+item.axis;title.textContent=I18N.t(title.dataset.i18n);label.appendChild(title);
         var input=document.createElement('input');input.type='range';
         input.id=mark.key+item.axis;input.min=item.min;input.max=item.max;input.step=item.step;
-        input.setAttribute('aria-label',mark.name+' '+item.name);
+        input.dataset.i18nAria='position.aria.'+mark.key+'.'+item.axis;input.setAttribute('aria-label',I18N.t(input.dataset.i18nAria));
         input.addEventListener('input',function(){scene[mark.key+item.axis]=Number(input.value)/(item.axis==='Angle'?1:100);dirty=true;});
         label.appendChild(input);group.appendChild(label);inputs.push({input:input,key:mark.key+item.axis,scale:item.axis==='Angle'?1:100});
       });
-      var reset=document.createElement('button');reset.type='button';reset.className='position-reset';reset.textContent='위치 초기화';
+      var reset=document.createElement('button');reset.type='button';reset.className='position-reset';reset.dataset.i18n='position.reset';reset.textContent=I18N.t(reset.dataset.i18n);
       reset.addEventListener('click',function(){inputs.forEach(function(x){scene[x.key]=PUDDING.SDF_DEFAULTS[x.key];});sync();});
       group.appendChild(reset);host.appendChild(group);fields.push({group:group,key:mark.key,inputs:inputs});
     });
@@ -293,6 +301,14 @@
   var busyText = document.getElementById('busyText');
   var saveBtn = document.getElementById('save');
   var notice = document.getElementById('notice');
+  function clearNotice() { notice.textContent = ''; notice.removeAttribute('data-i18n'); }
+  function showNotice(key) { notice.dataset.i18n = key; notice.textContent = I18N.t(key); }
+  function showError(err, fallback) {
+    var key = I18N.errorKey(err && err.message);
+    if (key) showNotice(key);
+    else if (err && err.message) { clearNotice(); notice.textContent = err.message; }
+    else showNotice(fallback);
+  }
   var modeButtons = Array.prototype.slice.call(document.querySelectorAll('[data-motion]'));
   modeButtons.forEach(function(b){
     b.addEventListener('click',function(){
@@ -303,7 +319,7 @@
 
   function progress(ratio, text) {
     busyBar.style.width = Math.round(ratio * 100) + '%';
-    if(text) busyText.textContent=text;
+    if(text) { busyText.dataset.i18n = text; busyText.textContent = I18N.t(text); }
   }
   function encodeFrames(frames, delay) {
     var opts={width:GIF_SIZE,height:GIF_SIZE,frames:frames,delay:delay,dither:GIF_DITHER,loop:0};
@@ -333,7 +349,7 @@
   async function savePng(){
     if(exporting)return;
     exporting=true;
-    notice.textContent='';busy.hidden=false;progress(0,'PNG 만드는 중…');
+    clearNotice();busy.hidden=false;progress(0,'progress.pngPreparing');
     var controls=Array.prototype.slice.call(document.querySelectorAll('button,input'));
     controls.forEach(function(el){el.disabled=true;});
     // 마지막으로 화면에 그린 시점과 흔들림을 그대로 복사한다.
@@ -347,11 +363,11 @@
       shot.draw(time);
       var copy=document.createElement('canvas');copy.width=copy.height=960;
       copy.getContext('2d').drawImage(output,0,0);
-      progress(0.8,'PNG 저장하는 중…');
+      progress(0.8,'progress.pngSaving');
       var blob=await new Promise(function(resolve,reject){copy.toBlob(function(b){if(b)resolve(b);else reject(new Error('PNG를 만들지 못했어요.'));},'image/png');});
-      downloadBlob(blob,'tangle-pudding.png');notice.textContent='PNG를 저장했어요.';
+      downloadBlob(blob,'tangle-pudding.png');showNotice('notice.pngSaved');
       return blob;
-    }catch(err){console.error(err);notice.textContent=err.message || 'PNG를 저장하지 못했어요.';return null;}
+    }catch(err){console.error(err);showError(err,'errors.pngSave');return null;}
     finally{
       if(shot){var ext=shot.gl.getExtension('WEBGL_lose_context');if(ext)ext.loseContext();}
       exporting=false;busy.hidden=true;controls.forEach(function(el){el.disabled=false;});
@@ -362,11 +378,11 @@
   async function saveGif(done) {
     if(exporting) return;
     exporting=true;
-    notice.textContent='';
+    clearNotice();
     var controls=Array.prototype.slice.call(document.querySelectorAll('button,input'));
     controls.forEach(function(el){el.disabled=true;});
     busy.hidden=false;
-    progress(0,'GIF 만드는 중…');
+    progress(0,'progress.gifPreparing');
     var outputCanvas=document.createElement('canvas');
     outputCanvas.width=outputCanvas.height=GIF_SIZE;
     var outputScene;
@@ -393,19 +409,19 @@
         outputScene.draw(pose.time);
         ctx.drawImage(outputCanvas,0,0);
         frames.push(ctx.getImageData(0,0,GIF_SIZE,GIF_SIZE).data);
-        progress((i+1)/count*0.8,'움직임 만드는 중…');
+        progress((i+1)/count*0.8,'progress.gifFrames');
         await nextTask();
       }
-      progress(0.85,'색을 정리하고 저장하는 중…');
+      progress(0.85,'progress.gifSaving');
       var bytes=await encodeFrames(frames,delay);
       var blob=new Blob([bytes],{type:'image/gif'});
       downloadBlob(blob,rotate?'tangle-pudding-rotate.gif':'tangle-pudding-bounce.gif');
-      notice.textContent='GIF를 저장했어요.';
+      showNotice('notice.gifSaved');
       if(done) done(bytes);
       return bytes;
     } catch(err){
       console.error(err);
-      notice.textContent=err.message || '저장하지 못했어요. 다시 시도해 주세요.';
+      showError(err,'errors.save');
       return null;
     } finally {
       if(outputScene) {var ext=outputScene.gl.getExtension('WEBGL_lose_context');if(ext)ext.loseContext();}
