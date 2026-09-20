@@ -260,11 +260,11 @@
     buildChips('animals', ANIMALS, 'animal'),
     buildChips('eyes', EYES, 'eye'),
     buildChips('mouths', MOUTHS, 'mouth'),
-    buildChips('plates', ['기본', '꽃잎', '하트', '둥근 사각'], 'plateStyle'),
+    buildChips('plates', ['기본', '꽃잎', '네잎클로버', '둥근 사각'], 'plateStyle'),
     buildToggles('toppings', TOPPINGS),
     buildToggles('faceDecor', MARKS),
     buildPositions(),
-    buildChips('bgPatterns', ['민무늬','둥근 별','둥근 하트'], 'bgPattern'),
+    buildChips('bgPatterns', ['민무늬','둥근 별','하트','스트라이프'], 'bgPattern'),
     buildColors()
   ];
   function sync() { dirty=true; refreshers.forEach(function (f) { f(); }); }
@@ -376,15 +376,18 @@
       outputScene.quality=1;
       var startAz=scene.az;
       var rotate=motionMode==='rotate';
-      // 회전 4.8초/80프레임. 뾰잉은 미리보기와 같은 시간축으로 2.5초/50프레임.
-      var count=rotate?80:50;
+      // 회전 4.8초/80프레임. 뾰잉은 미리보기와 같은 시간축으로 2초/40프레임.
+      var count=rotate?80:40;
       var delay=rotate?6:5;
       var tmp=document.createElement('canvas');tmp.width=tmp.height=GIF_SIZE;
       var ctx=tmp.getContext('2d',{willReadFrequently:true});
       var frames=[];
       for(var i=0;i<count;i++){
         var pose=rotate?{time:i/count*Math.PI*4/2.4,amp:0.32}:poseAt(i*delay/100);
-        if(!rotate && i>44)pose.amp*=Math.max(0,(48-i)/4);
+        if(!rotate && i>32){
+          var tail=Math.min(1,(i-32)/6);
+          pose.amp*=1-tail*tail*(3-2*tail);
+        }
         outputScene.az=startAz+(rotate?i/count*Math.PI*2:0);
         outputScene.jiggle=pose.amp;
         outputScene.draw(pose.time);

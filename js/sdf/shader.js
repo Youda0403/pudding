@@ -30,7 +30,7 @@ uniform float uSyrup;    // 0 없음 / 1 접시에 웅덩이
 uniform float uCherry;   // 0/1 체리
 uniform float uCream;    // 0/1 생크림
 uniform float uSprinkle; // 0/1 스프링클
-uniform float uPlateStyle; // 0 기본 / 1 꽃 / 2 하트 / 3 사각
+uniform float uPlateStyle; // 0 기본 / 1 꽃 / 2 네잎클로버 / 3 사각
 uniform vec4 uMarks; // 점, 홍조, 흉터, 주근깨
 uniform vec3 uMole2;
 uniform float uBgPattern;
@@ -503,11 +503,14 @@ vec4 faceDecor(vec3 q){
   vec2 c=rot(uScarAngle)*(q.xy-markPosition(uScar));
   // 한 획: 양끝은 가늘고 중간은 넓은 흉터.
   float scar=1.0-smoothstep(0.85,1.10,length(c/vec2(0.0090,0.066)));
-  float freckle=length(cheeks-vec2(0.255,0.451))-0.0065;
-  freckle=min(freckle,length(cheeks-vec2(0.292,0.442))-0.0070);
-  freckle=min(freckle,length(cheeks-vec2(0.327,0.454))-0.0060);
-  freckle=min(freckle,length(cheeks-vec2(0.275,0.420))-0.0055);
-  freckle=min(freckle,length(cheeks-vec2(0.316,0.420))-0.0065);
+  // 콧잔등의 작은 띠에만 배치한다. 양 볼까지 퍼지지 않는다.
+  float freckle=length(q.xy-vec2(-0.090,0.479))-0.0055;
+  freckle=min(freckle,length(q.xy-vec2(-0.058,0.489))-0.0060);
+  freckle=min(freckle,length(q.xy-vec2(-0.028,0.471))-0.0055);
+  freckle=min(freckle,length(q.xy-vec2(0.002,0.488))-0.0060);
+  freckle=min(freckle,length(q.xy-vec2(0.034,0.478))-0.0055);
+  freckle=min(freckle,length(q.xy-vec2(0.065,0.490))-0.0060);
+  freckle=min(freckle,length(q.xy-vec2(0.092,0.473))-0.0050);
   freckle=1.0-smoothstep(-0.001,0.0025,freckle);
   return vec4(mole,blush*uMarks.y,scar*uMarks.z,freckle*uMarks.w)*front;
 }
@@ -610,17 +613,17 @@ float sdSprinkles(vec3 q){float id;return sdSprinkles(q,id);}
    실제 곡면과 얇아지는 가장자리가 있으며, 고정된 접시 위에 놓인다. */
 // 접시마다 맞는 둥근 웅덩이. 외곽을 접시 모양으로 잘라 각진 모서리를 만들지 않는다.
 float syrupLevel(vec3 p){
-  vec2 radii=vec2(0.85,0.82),center=vec2(0.0);
+  vec2 radii=vec2(0.79,0.76),center=vec2(0.0);
   if(uPlateStyle>0.5&&uPlateStyle<1.5)radii=vec2(0.82,0.80);
-  else if(uPlateStyle>1.5&&uPlateStyle<2.5){radii=vec2(0.79,0.72);center.y=-0.08;}
+  else if(uPlateStyle>1.5&&uPlateStyle<2.5)radii=vec2(0.80,0.78);
   else if(uPlateStyle>2.5)radii=vec2(0.81,0.77);
   vec2 v=(p.xz-center)/radii;
   float a=atan(v.y,v.x);
   return length(v)/(1.0+0.012*sin(3.0*a+0.6)+0.008*sin(5.0*a+2.1));
 }
-// 접시 외곽까지의 2D 거리. 0 기본 / 1 꽃 / 2 하트 / 3 둥근 사각.
+// 접시 외곽까지의 2D 거리. 0 기본 / 1 꽃 / 2 네잎클로버 / 3 둥근 사각.
 float plateOutline(vec2 p){
-  if(uPlateStyle < 0.5) return length(p) - 1.29;
+  if(uPlateStyle < 0.5) return length(p) - 1.12;
   if(uPlateStyle < 1.5){
     // 둥근 원 8장의 바깥 윤곽을 방사형 거리로 표현한다.
     // 내부도 연속된 거리여야 접시 림과 시럽에 분리된 작은 섬이 생기지 않는다.
@@ -632,13 +635,9 @@ float plateOutline(vec2 p){
     return (length(p)-smax(r1,r2,0.055))*0.70;
   }
   if(uPlateStyle < 2.5){
-    // 두 둥근 윗부분 + 회전된 둥근 사각형. 홈은 뒤쪽(-z), 끝은 앞쪽.
-    vec2 h=vec2(p.x,-p.y+0.10);
-    vec2 q=abs(rot(0.785398)*h)-vec2(0.665);
-    float diamond=length(max(q,0.0))+min(max(q.x,q.y),0.0)-0.07;
-    float lobes=smin(length(h-vec2(-0.52,0.52))-0.735,
-                      length(h-vec2(0.52,0.52))-0.735,0.035);
-    return smin(diamond,lobes,0.018);
+    // 90도 회전해도 같은 네 개의 둥근 잎.
+    float a=atan(p.y,p.x);
+    return (length(p)-1.105-0.120*cos(4.0*a))*0.78;
   }
   vec2 q = abs(p) - vec2(0.76,0.74);
   return length(max(q,0.0)) + min(max(q.x,q.y),0.0) - 0.28;
@@ -781,10 +780,15 @@ vec3 background(vec2 uv){
   if(uBgPattern<1.5){
     float a=atan(p.y,p.x)-1.5707963;
     d=length(p)-(0.048+0.015*cos(5.0*a));
+  }else if(uBgPattern<2.5){
+    // 둥근 두 윗부분과 끝이 뾰족한 아랫부분을 가진 하트.
+    vec2 h=p/0.055;
+    float diamond=(abs(h.x)+abs(h.y)-0.80)*0.70710678;
+    float lobes=min(length(h-vec2(-0.40,0.40)),length(h-vec2(0.40,0.40)))-0.56568542;
+    d=min(diamond,lobes)*0.055;
   }else{
-    float l=sdCapsule2(p,vec2(-0.025,0.022),vec2(0.0,-0.023),0.029);
-    float r=sdCapsule2(p,vec2(0.025,0.022),vec2(0.0,-0.023),0.029);
-    d=smin(l,r,0.006);
+    // 화면 좌표의 일정한 간격으로 이어지는 세로 스트라이프.
+    d=(abs(fract(uv.x/0.22)-0.5)-0.24)*0.22;
   }
   float mask=1.0-smoothstep(-0.001,0.002,d);
   vec3 pattern=mix(uBg,vec3(1.0),0.48);
@@ -897,9 +901,12 @@ void main(){
       vec4 marks=faceDecor(q);
       vec3 rose=pow(vec3(0.93,0.48,0.54),vec3(2.2));
       base=mix(base,rose,marks.y*0.58);
-      base=mix(base,pow(mix(uBody*0.45,uInk,0.65),vec3(2.2)),marks.w*0.80);
+
       base=mix(base,pow(vec3(0.65,0.51,0.51),vec3(2.2)),marks.z*0.88);
-      base=mix(base,pow(uInk,vec3(2.2)),marks.x);
+      float skinLight=dot(uBody,vec3(0.2126,0.7152,0.0722));
+      vec3 spotColor=skinLight<0.32?mix(uBody,vec3(1.0),0.19):uBody*0.72;
+      // 점 1·점 2·주근깨 모두 같은 피부 파생색과 불투명도를 사용한다.
+      base=mix(base,pow(spotColor,vec3(2.2)),max(marks.x,marks.w));
 
       /* 눈과 입은 같은 껍질에 새기고, 사용자가 고른 잉크 색을 공유한다. */
       float shl  = faceShell(q, dBE);
