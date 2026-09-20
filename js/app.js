@@ -32,6 +32,10 @@
     syrupCol: ['#99501f', '#70492f', '#e76a85', '#8faf57', '#9b72c4', '#4f9bc7'],
     bg:       ['#e5d6c3', '#f0dfe2', '#dbe7d5', '#d6e0ec', '#e6dcef', '#c9bdb0']
   };
+  var MARKS = [
+    {key:'mole',label:'점'}, {key:'blush',label:'홍조'},
+    {key:'scar',label:'흉터'}, {key:'freckles',label:'주근깨'}
+  ];
   var COLOR_ROWS = [
     { key: 'body',     name: '푸딩' },
     { key: 'ink',      name: '눈·입' },
@@ -228,12 +232,38 @@
     return function () { refresh.forEach(function (f) { f(); }); };
   }
 
+  function buildPositions(){
+    var host=document.getElementById('markPositions');
+    var fields=[];
+    [{key:'mole',name:'점'},{key:'scar',name:'흉터'}].forEach(function(mark){
+      var group=document.createElement('fieldset');group.className='position';
+      var legend=document.createElement('legend');legend.textContent=mark.name+' 위치';group.appendChild(legend);
+      var inputs=[];
+      [{axis:'X',name:'좌우',min:-85,max:85,step:1},
+       {axis:'Y',name:'높이',min:24,max:65,step:1}].forEach(function(item){
+        var label=document.createElement('label');
+        var title=document.createElement('span');title.textContent=item.name;label.appendChild(title);
+        var input=document.createElement('input');input.type='range';
+        input.id=mark.key+item.axis;input.min=item.min;input.max=item.max;input.step=item.step;
+        input.setAttribute('aria-label',mark.name+' '+item.name);
+        input.addEventListener('input',function(){scene[mark.key+item.axis]=Number(input.value)/100;dirty=true;});
+        label.appendChild(input);group.appendChild(label);inputs.push({input:input,key:mark.key+item.axis});
+      });
+      var reset=document.createElement('button');reset.type='button';reset.className='position-reset';reset.textContent='위치 초기화';
+      reset.addEventListener('click',function(){inputs.forEach(function(x){scene[x.key]=PUDDING.SDF_DEFAULTS[x.key];});sync();});
+      group.appendChild(reset);host.appendChild(group);fields.push({group:group,key:mark.key,inputs:inputs});
+    });
+    return function(){fields.forEach(function(f){f.group.hidden=!scene[f.key];f.inputs.forEach(function(x){x.input.value=scene[x.key]*100;});});};
+  }
+
   var refreshers = [
     buildChips('animals', ANIMALS, 'animal'),
     buildChips('eyes', EYES, 'eye'),
     buildChips('mouths', MOUTHS, 'mouth'),
-    buildChips('plates', ['기본', '꽃잎', '타원', '둥근 사각'], 'plateStyle'),
+    buildChips('plates', ['기본', '꽃잎', '하트', '둥근 사각'], 'plateStyle'),
     buildToggles('toppings', TOPPINGS),
+    buildToggles('faceDecor', MARKS),
+    buildPositions(),
     buildColors()
   ];
   function sync() { dirty=true; refreshers.forEach(function (f) { f(); }); }
@@ -247,6 +277,7 @@
     scene.plateStyle = Math.floor(Math.random()*4);
     // 꾸미기는 다 같이 켜면 정신없으니 하나씩 확률을 낮게 둔다.
     TOPPINGS.forEach(function (t) { scene[t.key] = Math.random() < 0.32 ? 1 : 0; });
+    MARKS.forEach(function(t){scene[t.key]=Math.random()<0.25?1:0;});
     COLOR_ROWS.forEach(function (row) { scene[row.key] = pick(SWATCHES[row.key]); });
     sync();
     bounce();
@@ -254,8 +285,8 @@
 
   /* GIF는 별도 장면으로 고정된 설정을 캡처한다. 인코딩은 worker에서
      수행하고, 완료/실패 어느 쪽이든 버튼과 미리보기를 복원한다. */
-  var GIF_SIZE = 300;
-  var GIF_DITHER = 2;
+  var GIF_SIZE = 480;
+  var GIF_DITHER = 6;
   var busy = document.getElementById('busy');
   var busyBar = document.getElementById('busyBar');
   var busyText = document.getElementById('busyText');
@@ -291,6 +322,42 @@
   }
   function nextTask(){return new Promise(function(resolve){setTimeout(resolve,0);});}
 
+  function downloadBlob(blob,name){
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');a.href=url;a.download=name;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(url);},30000);
+  }
+
+  async function savePng(){
+    if(exporting)return;
+    exporting=true;
+    notice.textContent='';busy.hidden=false;progress(0,'PNG 만드는 중…');
+    var controls=Array.prototype.slice.call(document.querySelectorAll('button,input'));
+    controls.forEach(function(el){el.disabled=true;});
+    // 마지막으로 화면에 그린 시점과 흔들림을 그대로 복사한다.
+    var time=scene.lastTime || 0;
+    var shot;
+    try {
+      var output=document.createElement('canvas');output.width=output.height=960;
+      shot=PUDDING.createScene(output);
+      Object.keys(PUDDING.SDF_DEFAULTS).forEach(function(k){shot[k]=scene[k];});
+      // 미리보기와 조명 설정까지 같게 유지하고, 픽셀 수만 늘린다.
+      shot.draw(time);
+      var copy=document.createElement('canvas');copy.width=copy.height=960;
+      copy.getContext('2d').drawImage(output,0,0);
+      progress(0.8,'PNG 저장하는 중…');
+      var blob=await new Promise(function(resolve,reject){copy.toBlob(function(b){if(b)resolve(b);else reject(new Error('PNG를 만들지 못했어요.'));},'image/png');});
+      downloadBlob(blob,'tangle-pudding.png');notice.textContent='PNG를 저장했어요.';
+      return blob;
+    }catch(err){console.error(err);notice.textContent=err.message || 'PNG를 저장하지 못했어요.';return null;}
+    finally{
+      if(shot){var ext=shot.gl.getExtension('WEBGL_lose_context');if(ext)ext.loseContext();}
+      exporting=false;busy.hidden=true;controls.forEach(function(el){el.disabled=false;});
+      dirty=true;lastDraw=0;
+    }
+  }
+
   async function saveGif(done) {
     if(exporting) return;
     exporting=true;
@@ -308,14 +375,14 @@
       outputScene.quality=1;
       var startAz=scene.az;
       var rotate=motionMode==='rotate';
-      // 한 바퀴 4.8초. 뾰잉은 제자리에서 3.2초, 끝에 짧은 쉼.
-      var count=rotate?60:40;
-      var delay=8;
+      // 회전 4.8초/80프레임. 뾰잉은 감쇠를 압축해 1.8초/36프레임.
+      var count=rotate?80:36;
+      var delay=rotate?6:5;
       var tmp=document.createElement('canvas');tmp.width=tmp.height=GIF_SIZE;
       var ctx=tmp.getContext('2d',{willReadFrequently:true});
       var frames=[];
       for(var i=0;i<count;i++){
-        var pose=rotate?{time:i/count*Math.PI*4/2.4,amp:0.32}:poseAt(i*delay/100);
+        var pose=rotate?{time:i/count*Math.PI*4/2.4,amp:0.32}:poseAt(i*delay/100*(2.8/1.5));
         outputScene.az=startAz+(rotate?i/count*Math.PI*2:0);
         outputScene.jiggle=pose.amp;
         outputScene.draw(pose.time);
@@ -327,11 +394,7 @@
       progress(0.85,'색을 정리하고 저장하는 중…');
       var bytes=await encodeFrames(frames,delay);
       var blob=new Blob([bytes],{type:'image/gif'});
-      var url=URL.createObjectURL(blob);
-      var a=document.createElement('a');a.href=url;
-      a.download=rotate?'tangle-pudding-rotate.gif':'tangle-pudding-bounce.gif';
-      document.body.appendChild(a);a.click();a.remove();
-      setTimeout(function(){URL.revokeObjectURL(url);},30000);
+      downloadBlob(blob,rotate?'tangle-pudding-rotate.gif':'tangle-pudding-bounce.gif');
       notice.textContent='GIF를 저장했어요.';
       if(done) done(bytes);
       return bytes;
@@ -347,6 +410,7 @@
     }
   }
 
+  document.getElementById('savePng').addEventListener('click',function(){savePng();});
   saveBtn.addEventListener('click', function () { saveGif(); });
 
   sync();
@@ -354,5 +418,5 @@
   global.requestAnimationFrame(frame);
 
   // 헤드리스 점검용
-  global.PUDDING_APP = { scene: scene, saveGif: saveGif, bounce: bounce, redraw: function(){dirty=true;} };
+  global.PUDDING_APP = { scene: scene, saveGif: saveGif, savePng: savePng, bounce: bounce, redraw: function(){dirty=true;} };
 })(window);

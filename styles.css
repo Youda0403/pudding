@@ -274,3 +274,20 @@ body {
   .frame { width: min(100%, 32dvh); }
   .tip { display: none; }
 }
+
+/* 켠 장식의 위치만 보여 패널을 짧게 유지한다. */
+.positions { display:grid; gap:10px; }
+.position {
+  min-width:0; margin:12px 0 0; padding:8px 12px;
+  border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.5);
+}
+.position[hidden] { display:none; }
+.position legend { padding:0 5px; font-size:12px; color:var(--dim); }
+.position label { display:flex; align-items:center; gap:12px; min-height:44px; font-size:13px; }
+.position label span { flex:0 0 30px; }
+.position input[type="range"] { width:100%; min-width:0; margin:0; height:44px; accent-color:var(--accent-dark); }
+.position-reset { min-height:44px; padding:0 5px; border:0; background:none; color:var(--ink); font:inherit; font-size:12px; text-decoration:underline; cursor:pointer; }
+.acts { gap:8px; }
+.acts .btn { min-width:0; padding-inline:6px; font-size:14px; }
+.acts #random { flex:.75; }
+.acts .btn.go { flex:1.1; }

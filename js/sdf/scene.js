@@ -16,6 +16,8 @@
     cherry: 0,        // 0/1
     cream: 0,         // 0/1
     sprinkle: 0,      // 0/1
+    mole: 0, blush: 0, scar: 0, freckles: 0,
+    moleX: 0.43, moleY: 0.445, scarX: -0.50, scarY: 0.42,
     plateStyle: 0, quality: 0,
     az: 0.40, el: 0.26, dist: 6.00,
     // 예전에 셰이더에 박혀 있던 색들. 조명 계산은 선형 공간에서 하므로
@@ -70,7 +72,7 @@
     var U = {};
     ['uRes', 'uTime', 'uMode', 'uCam', 'uJiggle', 'uEye', 'uMouth', 'uAnimal',
      'uBody', 'uInk', 'uSyrupCol', 'uSyrup', 'uCherry', 'uCream', 'uSprinkle',
-     'uPlate', 'uBg', 'uPlateStyle', 'uQuality'].forEach(function (name) {
+     'uPlate', 'uBg', 'uPlateStyle', 'uQuality', 'uMarks', 'uMole', 'uScar'].forEach(function (name) {
       U[name] = gl.getUniformLocation(prog, name);
     });
 
@@ -85,10 +87,14 @@
       // (안 맞추면 큰 해상도로 뽑을 때 왼쪽 아래 일부만 그려진다)
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform2f(U.uRes, canvas.width, canvas.height);
-      gl.uniform1f(U.uTime, t || 0);
+      scene.lastTime = t || 0;
+      gl.uniform1f(U.uTime, scene.lastTime);
       gl.uniform1f(U.uMode, scene.mode);
       gl.uniform1f(U.uPlateStyle, scene.plateStyle);
       gl.uniform1f(U.uQuality, scene.quality);
+      gl.uniform4f(U.uMarks,scene.mole,scene.blush,scene.scar,scene.freckles);
+      gl.uniform2f(U.uMole,scene.moleX,scene.moleY);
+      gl.uniform2f(U.uScar,scene.scarX,scene.scarY);
       gl.uniform3f(U.uCam, scene.az, scene.el, scene.dist);
       gl.uniform1f(U.uJiggle, scene.jiggle);
       gl.uniform1f(U.uEye, scene.eye);
