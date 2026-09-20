@@ -308,5 +308,5 @@ body {
 .position-reset { min-height:44px; padding:0 5px; border:0; background:none; color:var(--ink); font:inherit; font-size:12px; text-decoration:underline; cursor:pointer; }
 .acts { gap:8px; }
 .acts .btn { min-width:0; padding-inline:6px; font-size:14px; }
-.acts #random { flex:.75; }
+
 .acts .btn.go { flex:1.1; }

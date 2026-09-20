@@ -66,32 +66,38 @@
   var motionMode = 'rotate';
   var reducedMotion = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  var frameRequest = 0;
+  function requestFrame(){
+    if(!frameRequest && !exporting && !document.hidden)frameRequest=global.requestAnimationFrame(frame);
+  }
+  function invalidate(){dirty=true;requestFrame();}
   function bounce() {
     if (exporting) return;
     bounceStart = reducedMotion ? null : performance.now();
     lastDraw = 0;
-    dirty = true;
+    invalidate();
   }
   function fit() {
     var size = Math.min(Math.round(canvas.clientWidth * Math.min(global.devicePixelRatio || 1, 1.25)) || 300, previewLimit);
-    if (canvas.width !== size) { canvas.width = size; canvas.height = size; dirty = true; }
+    if (canvas.width !== size) { canvas.width = size; canvas.height = size; invalidate(); }
   }
   function poseAt(seconds) {
     // 최대 기울기보다 복원감이 중심인, 3초 안에 끝나는 뾰잉.
-    if (seconds >= 2.8) return {time: 0, amp: 0};
-    return {time: seconds * 3.5, amp: 4.8 * Math.exp(-seconds * 1.9) * Math.pow(1-seconds/2.8, 2)};
+    if (seconds >= 2.0) return {time: 0, amp: 0};
+    var tail=Math.max(0,Math.min(1,(seconds-1.6)/0.3));
+    return {time:seconds*3.5,amp:4.8*Math.exp(-seconds*1.9)*Math.pow(1-seconds/2.8,2)*(1-tail*tail*(3-2*tail))};
   }
   function frame(now) {
-    global.requestAnimationFrame(frame);
+    frameRequest=0;
     if (exporting || document.hidden) return;
     fit();
     var active = bounceStart !== null;
     if (!dirty && !active) return;
-    if (now-lastDraw < 1000/30) return;
+    if (now-lastDraw < 1000/30) {requestFrame();return;}
     // RAF의 타임스탬프는 첫 셰이더 준비 작업보다 앞설 수도 있다.
     var elapsed = active ? Math.max(0,(performance.now()-bounceStart)/1000) : 3;
     var pose = poseAt(elapsed);
-    if (elapsed >= 2.8) bounceStart = null;
+    if (elapsed >= 2.0) bounceStart = null;
     scene.jiggle = pose.amp;
     scene.quality = 0;
     scene.draw(pose.time);
@@ -102,10 +108,11 @@
     }
     lastDraw=now;
     dirty=false;
+    if(bounceStart!==null)requestFrame();
   }
-  global.addEventListener('resize', function(){dirty=true;});
+  global.addEventListener('resize', function(){invalidate();});
   document.addEventListener('visibilitychange', function(){
-    bounceStart=null;dirty=true;lastDraw=0;
+    bounceStart=null;invalidate();lastDraw=0;
   });
 
   /* ---------------------------------------------------------------
@@ -120,7 +127,7 @@
   });
   canvas.addEventListener('pointermove', function (e) {
     if (!drag || exporting) return;
-    dirty = true;
+    invalidate();
     scene.az -= (e.clientX - drag.x) * 0.007;
     scene.el = Math.max(-0.20, Math.min(0.95, scene.el + (e.clientY - drag.y) * 0.005));
     drag = { x: e.clientX, y: e.clientY };
@@ -254,7 +261,7 @@
         var input=document.createElement('input');input.type='range';
         input.id=mark.key+item.axis;input.min=item.min;input.max=item.max;input.step=item.step;
         input.dataset.i18nAria='position.aria.'+mark.key+'.'+item.axis;input.setAttribute('aria-label',I18N.t(input.dataset.i18nAria));
-        input.addEventListener('input',function(){scene[mark.key+item.axis]=Number(input.value)/(item.axis==='Angle'?1:100);dirty=true;});
+        input.addEventListener('input',function(){scene[mark.key+item.axis]=Number(input.value)/(item.axis==='Angle'?1:100);invalidate();});
         label.appendChild(input);group.appendChild(label);inputs.push({input:input,key:mark.key+item.axis,scale:item.axis==='Angle'?1:100});
       });
       var reset=document.createElement('button');reset.type='button';reset.className='position-reset';reset.dataset.i18n='position.reset';reset.textContent=I18N.t(reset.dataset.i18n);
@@ -275,22 +282,7 @@
     buildChips('bgPatterns', ['민무늬','둥근 별','하트','스트라이프'], 'bgPattern'),
     buildColors()
   ];
-  function sync() { dirty=true; refreshers.forEach(function (f) { f(); }); }
-
-  function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
-
-  document.getElementById('random').addEventListener('click', function () {
-    scene.animal = Math.floor(Math.random() * ANIMALS.length);
-    scene.eye    = Math.floor(Math.random() * EYES.length);
-    scene.mouth  = Math.floor(Math.random() * MOUTHS.length);
-    scene.plateStyle = Math.floor(Math.random()*4);
-    // 꾸미기는 다 같이 켜면 정신없으니 하나씩 확률을 낮게 둔다.
-    TOPPINGS.forEach(function (t) { scene[t.key] = Math.random() < 0.32 ? 1 : 0; });
-    MARKS.forEach(function(t){scene[t.key]=Math.random()<0.25?1:0;});
-    COLOR_ROWS.forEach(function (row) { scene[row.key] = pick(SWATCHES[row.key]); });
-    sync();
-    bounce();
-  });
+  function sync() { invalidate(); refreshers.forEach(function (f) { f(); }); }
 
   /* GIF는 별도 장면으로 고정된 설정을 캡처한다. 인코딩은 worker에서
      수행하고, 완료/실패 어느 쪽이든 버튼과 미리보기를 복원한다. */
@@ -371,7 +363,7 @@
     finally{
       if(shot){var ext=shot.gl.getExtension('WEBGL_lose_context');if(ext)ext.loseContext();}
       exporting=false;busy.hidden=true;controls.forEach(function(el){el.disabled=false;});
-      dirty=true;lastDraw=0;
+      invalidate();lastDraw=0;
     }
   }
 
@@ -400,10 +392,6 @@
       var frames=[];
       for(var i=0;i<count;i++){
         var pose=rotate?{time:i/count*Math.PI*4/2.4,amp:0.32}:poseAt(i*delay/100);
-        if(!rotate && i>32){
-          var tail=Math.min(1,(i-32)/6);
-          pose.amp*=1-tail*tail*(3-2*tail);
-        }
         outputScene.az=startAz+(rotate?i/count*Math.PI*2:0);
         outputScene.jiggle=pose.amp;
         outputScene.draw(pose.time);
@@ -427,7 +415,7 @@
       if(outputScene) {var ext=outputScene.gl.getExtension('WEBGL_lose_context');if(ext)ext.loseContext();}
       exporting=false;busy.hidden=true;
       controls.forEach(function(el){el.disabled=false;});
-      bounceStart=null;dirty=true;lastDraw=0;
+      bounceStart=null;invalidate();lastDraw=0;
     }
   }
 
@@ -436,8 +424,8 @@
 
   sync();
   fit();
-  global.requestAnimationFrame(frame);
+  requestFrame();
 
   // 헤드리스 점검용
-  global.PUDDING_APP = { scene: scene, saveGif: saveGif, savePng: savePng, bounce: bounce, redraw: function(){dirty=true;} };
+  global.PUDDING_APP = { scene: scene, saveGif: saveGif, savePng: savePng, bounce: bounce, redraw: function(){invalidate();} };
 })(window);
