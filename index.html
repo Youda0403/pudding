@@ -5,7 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
 <meta name="theme-color" content="#fdf6ec" />
 <title data-i18n="title">탱글 푸딩 만들기</title>
-<link rel="stylesheet" href="styles.css" />
+<script>
+/* 새로고침할 때마다 최신 스타일을 요청한다. HTML과 그 외 UI는 변경하지 않는다. */
+var assetVersion = Date.now();
+var stylesheet = document.createElement('link');
+stylesheet.rel = 'stylesheet';
+stylesheet.href = 'styles.css?v=' + assetVersion;
+document.head.appendChild(stylesheet);
+</script>
 </head>
 <body>
 
@@ -70,11 +77,16 @@
   <button type="button" class="btn go" data-i18n="action.saveGif" id="save">GIF 저장</button>
 </footer>
 
-<script src="js/color.js"></script>
-<script src="js/gif.js"></script>
-<script src="js/sdf/shader.js"></script>
-<script src="js/sdf/scene.js"></script>
-<script src="js/i18n.js"></script>
-<script src="js/app.js"></script>
+<script>
+/* 같은 URL의 오래된 JS가 남지 않도록 파일별 버전 URL로 불러온다.
+   async=false는 동적 스크립트의 실행 순서를 기존 HTML과 동일하게 유지한다. */
+['js/color.js', 'js/gif.js', 'js/sdf/shader.js',
+ 'js/sdf/scene.js', 'js/i18n.js', 'js/app.js'].forEach(function (path) {
+  var script = document.createElement('script');
+  script.async = false;
+  script.src = path + '?v=' + assetVersion;
+  document.body.appendChild(script);
+});
+</script>
 </body>
 </html>
